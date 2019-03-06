@@ -3,8 +3,13 @@
 package wmi
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/go-ole/go-ole"
+	"github.com/go-ole/go-ole/oleutil"
 )
 
 var (
@@ -106,7 +111,7 @@ func TestDecoder_Unmarshal_OmitUnneeded(t *testing.T) {
 	client.Decoder.AllowMissingFields = true
 	// Query with all fields having receiver with not all.
 	var processes []miniProcess
-	err := client.Query(`	SELECT * FROM Win32_Process WHERE ProcessId = 4`, &processes)
+	err := client.Query(`SELECT * FROM Win32_Process WHERE ProcessId = 4`, &processes)
 	if err != nil {
 		t.Fatalf("Failed to query running processes; %s", err)
 	}
@@ -129,12 +134,9 @@ type taggedMiniProcess struct {
 }
 
 func TestDecoder_Unmarshal_Tags(t *testing.T) {
-	// Create test client with modified config to not mess other tests.
-	var client Client
-	client.Decoder.AllowMissingFields = true
 	// Query with all fields having receiver with not all.
 	var processes []taggedMiniProcess
-	err := client.Query(`	SELECT * FROM Win32_Process WHERE ProcessId = 4`, &processes)
+	err := Query(`	SELECT * FROM Win32_Process WHERE ProcessId = 4`, &processes)
 	if err != nil {
 		t.Fatalf("Failed to query running processes; %s", err)
 	}
@@ -153,5 +155,79 @@ func TestDecoder_Unmarshal_Tags(t *testing.T) {
 	}
 	if system.UserField != "" {
 		t.Errorf("Spoiled field marked to skip; content %q", system.UserField)
+	}
+}
+
+// Very self-sufficient process struct that is able to handle unmarshalling of
+// itself.
+type selfMadeProcess struct {
+	HexPID          string // Just because.
+	CoolProcessName string // Plus some beautification.
+}
+
+// Example of `wmi.Unmarshaler` interface implementation.
+func (p *selfMadeProcess) UnmarshalOLE(src *ole.IDispatch) (err error) {
+	getProperty := func(name string) (value interface{}, err error) {
+		prop, err := oleutil.GetProperty(src, name)
+		if err != nil {
+			return nil, err
+		}
+		return prop.Value(), prop.Clear()
+	}
+
+	val, err := getProperty("ProcessId")
+	if err != nil {
+		return err
+	}
+	pid, ok := val.(int32)
+	if !ok {
+		return fmt.Errorf("incorrect ProcessId type (%T)", val)
+	}
+	p.HexPID = fmt.Sprintf("0x%x", pid)
+
+	val, err = getProperty("Name")
+	if err != nil {
+		return err
+	}
+	name, ok := val.(string)
+	if !ok {
+		return fmt.Errorf("incorrect Name type (%T)", val)
+	}
+	p.CoolProcessName = fmt.Sprintf("-=%s=-", name)
+	return nil
+}
+
+type dumbUnmarshaller struct{}
+
+func (dumbUnmarshaller) UnmarshalOLE(src *ole.IDispatch) error {
+	return errors.New("always fail")
+}
+
+func TestDecoder_Unmarshal_Unmarshaler(t *testing.T) {
+	// Query with all fields having receiver with not all.
+	var processes []selfMadeProcess
+	err := Query(`	SELECT * FROM Win32_Process WHERE ProcessId = 4`, &processes)
+	if err != nil {
+		t.Fatalf("Failed to query running processes; %s", err)
+	}
+	// Get System process (always exists with PID=4)
+	if len(processes) != 1 {
+		t.Fatalf("Failed to find System (PID=4) process in running processes")
+	}
+	system := processes[0]
+
+	// Check the fields.
+	if system.HexPID != "0x4" {
+		t.Fatalf("Unexpected System process PID; got %q, expected %q", system.HexPID, "0x4")
+	}
+	if system.CoolProcessName != "-=System=-" {
+		t.Errorf("Unexpected System process name; got %q, expected %q", system.CoolProcessName, "-=System=-")
+	}
+
+	// Check that interface error passed to the output.
+	var failer []dumbUnmarshaller
+	err = Query(`SELECT * FROM Win32_Process WHERE ProcessId = 4`, &failer)
+	if err == nil {
+		t.Fatal("Failed to proxy Unmarshaler error to the caller")
 	}
 }

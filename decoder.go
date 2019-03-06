@@ -13,6 +13,12 @@ import (
 	"github.com/go-ole/go-ole/oleutil"
 )
 
+// Unmarshaler is the interface implemented by types that can unmarshal COM
+// object of themselves.
+type Unmarshaler interface {
+	UnmarshalOLE(src *ole.IDispatch) error
+}
+
 // Decoder handles "decoding" of `ole.IDispatch` objects into the given
 // structure. See `Decoder.Unmarshal` for more info.
 type Decoder struct {
@@ -65,6 +71,9 @@ var timeType = reflect.TypeOf(time.Time{})
 // - a pointer to one of types above
 // - []string and []byte.
 //
+// To unmarshal more complex struct consider implementing `wmi.Unmarshaler`.
+// For such types Unmarshal just calls `.UnmarshalOLE` on the @src object .
+//
 // To unmarshal COM-object into a struct, Unmarshal tries to fetch COM-object
 // properties for each public struct field using as a property name either
 // field name itself or the name specified in "wmi" field tag.
@@ -92,6 +101,11 @@ func (d *Decoder) Unmarshal(src *ole.IDispatch, dst interface{}) (err error) {
 			err = fmt.Errorf("runtime panic: %v", err)
 		}
 	}()
+
+	// Checks whether the type can handle unmarshalling of himself.
+	if u, ok := dst.(Unmarshaler); ok {
+		return u.UnmarshalOLE(src)
+	}
 
 	v := reflect.ValueOf(dst).Elem()
 	vType := v.Type()
