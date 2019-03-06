@@ -224,7 +224,11 @@ func CreateQuery(src interface{}, where string) string {
 	}
 	var fields []string
 	for i := 0; i < t.NumField(); i++ {
-		fields = append(fields, t.Field(i).Name)
+		name := getFieldName(t.Field(i))
+		if name == "-" {
+			continue
+		}
+		fields = append(fields, name)
 	}
 	b.WriteString(strings.Join(fields, ", "))
 	b.WriteString(" FROM ")

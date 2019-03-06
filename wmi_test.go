@@ -116,3 +116,17 @@ func TestCreateQuery(t *testing.T) {
 		t.Error("expected empty string")
 	}
 }
+
+func TestCreateQueryTags(t *testing.T) {
+	type TestStruct struct {
+		Name      string
+		Size      int    `wmi:"Count"`
+		UserField string `wmi:"-"`
+	}
+	var dst []TestStruct
+	expected := "SELECT Name, Count FROM TestStruct WHERE Count > 2"
+	got := CreateQuery(dst, "WHERE Count > 2")
+	if got != expected {
+		t.Errorf("Got unexpected query; got %q, expected %q", got, expected)
+	}
+}
