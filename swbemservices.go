@@ -237,7 +237,7 @@ func (s *SWbemServices) queryBackground(q *queryRequest) error {
 			defer item.Release()
 
 			ev := reflect.New(elemType)
-			if err = s.cWMIClient.loadEntity(ev.Interface(), item); err != nil {
+			if err = s.cWMIClient.Unmarshal(item, ev.Interface()); err != nil {
 				if _, ok := err.(*ErrFieldMismatch); ok {
 					// We continue loading entities even in the face of field mismatch errors.
 					// If we encounter any other error, that other error is returned. Otherwise,

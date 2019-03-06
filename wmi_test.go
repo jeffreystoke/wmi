@@ -27,8 +27,12 @@ func TestFieldMismatch(t *testing.T) {
 	}
 	var dst []s
 	err := Query("SELECT Name, HandleCount FROM Win32_Process", &dst)
-	if err == nil || err.Error() != `wmi: cannot load field "Blah" into a "uint32": no such struct field` {
-		t.Error("Expected err field mismatch")
+	if err == nil {
+		t.Fatal("Expected err field mismatch")
+	}
+	expectedErr := `wmi: cannot load field "Blah" into a "uint32": no such result field`
+	if err.Error() != expectedErr {
+		t.Errorf("Unexpected field mismatch error; got %q, expected %q", err, expectedErr)
 	}
 }
 
