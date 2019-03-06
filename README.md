@@ -35,7 +35,7 @@ func main() {
 		log.Fatal(err)
 	}
 	for _, v := range dst {
-		fmt.Println(v.PID, v.Name)
+		fmt.Println(v.ProcessId, v.Name)
 	}
 }
  ```
