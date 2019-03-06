@@ -120,3 +120,38 @@ func TestDecoder_Unmarshal_OmitUnneeded(t *testing.T) {
 		t.Errorf("Failed to fill anything in process; got %+v", processes[0])
 	}
 }
+
+// A few Win32_Process fields with tags.
+type taggedMiniProcess struct {
+	Name      string // Same as real.
+	PID       uint32 `wmi:"ProcessId"` // Modified name.
+	UserField string `wmi:"-"`         // Any non-property field.
+}
+
+func TestDecoder_Unmarshal_Tags(t *testing.T) {
+	// Create test client with modified config to not mess other tests.
+	var client Client
+	client.Decoder.AllowMissingFields = true
+	// Query with all fields having receiver with not all.
+	var processes []taggedMiniProcess
+	err := client.Query(`	SELECT * FROM Win32_Process WHERE ProcessId = 4`, &processes)
+	if err != nil {
+		t.Fatalf("Failed to query running processes; %s", err)
+	}
+	// Get System process (always exists with PID=4)
+	if len(processes) != 1 {
+		t.Fatalf("Failed to find System (PID=4) process in running processes")
+	}
+	system := processes[0]
+
+	// Check the fields.
+	if system.PID != 4 {
+		t.Fatalf("Unexpected System process PID; got %v, expected %v", system.PID, 4)
+	}
+	if system.Name != "System" {
+		t.Errorf("Unexpected System process name; got %v, expected %v", system.Name, "System")
+	}
+	if system.UserField != "" {
+		t.Errorf("Spoiled field marked to skip; content %q", system.UserField)
+	}
+}

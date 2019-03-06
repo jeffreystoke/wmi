@@ -13,15 +13,8 @@ import (
 	"github.com/go-ole/go-ole/oleutil"
 )
 
-// Decoder handles "decoding" of `ole.IDispatch`objects into the given
-// structure. N.B. Decoder supports only limited subset of structure field
-// types:
-// - all signed and unsigned integers
-// - time.Time
-// - string
-// - bool
-// - a pointer to one of types above
-// - []string and []byte.
+// Decoder handles "decoding" of `ole.IDispatch` objects into the given
+// structure. See `Decoder.Unmarshal` for more info.
 type Decoder struct {
 	// NonePtrZero specifies if nil values for fields which aren't pointers
 	// should be returned as the field types zero value.
@@ -62,8 +55,36 @@ func (e ErrFieldMismatch) Error() string {
 
 var timeType = reflect.TypeOf(time.Time{})
 
-// Unmarshal loads `ole.IDispatch` into a struct pointer. See `Decoder` for
-// more info.
+// Unmarshal loads `ole.IDispatch` into a struct pointer.
+// N.B. Unmarshal supports only limited subset of structure field
+// types:
+// - all signed and unsigned integers
+// - time.Time
+// - string
+// - bool
+// - a pointer to one of types above
+// - []string and []byte.
+//
+// To unmarshal COM-object into a struct, Unmarshal tries to fetch COM-object
+// properties for each public struct field using as a property name either
+// field name itself or the name specified in "wmi" field tag.
+//
+// By default any field missed in the COM-object leads to the error. To allow
+// skipping such fields set `.AllowMissingFields` to `true`.
+//
+// Unmarshal does some "smart" type conversions between integer types (including
+// unsigned ones), so you could receive e.g. `uint32` into `uint` if you don't
+// care about the size.
+//
+// Unmarshal allows to specify special COM-object property name or skip a field
+// using structure field tags, e.g.
+// 	```
+//		// Will be filled from property `Frequency_Object`
+// 		FrequencyObject int wmi:"Frequency_Object"`
+//
+//		// Will be skipped during unmarshalling.
+// 		MyHelperField   int wmi:"-"`
+// ```
 func (d *Decoder) Unmarshal(src *ole.IDispatch, dst interface{}) (err error) {
 	defer func() {
 		// We use lots of reflection, so always be alert!
@@ -76,11 +97,12 @@ func (d *Decoder) Unmarshal(src *ole.IDispatch, dst interface{}) (err error) {
 	vType := v.Type()
 	for i := 0; i < v.NumField(); i++ {
 		f := v.Field(i)
-		if !f.CanSet() {
+		fType := vType.Field(i)
+		fieldName := getFieldName(fType)
+
+		if !f.CanSet() || fieldName == "-" {
 			continue
 		}
-		fType := vType.Field(i)
-		fieldName := fType.Name
 
 		// Closure for defer in the loop.
 		err = func() error {
@@ -238,4 +260,12 @@ func (d *Decoder) unmarshalField(fieldDst reflect.Value, prop *ole.VARIANT) erro
 		}
 	}
 	return nil
+}
+
+func getFieldName(fType reflect.StructField) string {
+	tag := fType.Tag.Get("wmi")
+	if tag != "" {
+		return tag
+	}
+	return fType.Name
 }
