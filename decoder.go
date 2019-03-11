@@ -87,13 +87,11 @@ var timeType = reflect.TypeOf(time.Time{})
 //
 // Unmarshal allows to specify special COM-object property name or skip a field
 // using structure field tags, e.g.
-// 	```
-//		// Will be filled from property `Frequency_Object`
-// 		FrequencyObject int wmi:"Frequency_Object"`
+//    // Will be filled from property `Frequency_Object`
+//    FrequencyObject int wmi:"Frequency_Object"`
 //
-//		// Will be skipped during unmarshalling.
-// 		MyHelperField   int wmi:"-"`
-// ```
+//    // Will be skipped during unmarshalling.
+//    MyHelperField   int wmi:"-"`
 func (d *Decoder) Unmarshal(src *ole.IDispatch, dst interface{}) (err error) {
 	defer func() {
 		// We use lots of reflection, so always be alert!
