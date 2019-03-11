@@ -5,11 +5,11 @@ package wmi
 import (
 	"fmt"
 	"reflect"
-	"runtime"
 	"sync"
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
+	"github.com/scjalliance/comshim"
 )
 
 // SWbemServices is used to access wmi. See https://msdn.microsoft.com/en-us/library/aa393719(v=vs.85).aspx
@@ -74,20 +74,24 @@ func (s *SWbemServices) Close() error {
 }
 
 func (s *SWbemServices) process(initError chan error) {
-	//fmt.Println("process: starting background thread initialization")
-	//All OLE/WMI calls must happen on the same initialized thead, so lock this goroutine
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED)
-	if err != nil {
-		oleCode := err.(*ole.OleError).Code()
-		if oleCode != ole.S_OK && oleCode != S_FALSE {
-			initError <- fmt.Errorf("ole.CoInitializeEx error: %v", err)
-			return
+	//  Be aware of reflections and COM usage.
+	defer func() {
+		if r := recover(); r != nil {
+			err := fmt.Errorf("runtime panic; %v", r)
+			if initError != nil { // Panic on initialization phase.
+				initError <- err
+			} else {
+				s.closeError <- err // Should never be nil here.
+			}
 		}
-	}
-	defer ole.CoUninitialize()
+		close(s.closeError)
+	}()
+
+	//fmt.Println("process: starting background thread initialization")
+
+	// Notify that we are going to use COM.
+	comshim.Add(1)
+	defer comshim.Done()
 
 	unknown, err := oleutil.CreateObject("WbemScripting.SWbemLocator")
 	if err != nil {
@@ -111,6 +115,7 @@ func (s *SWbemServices) process(initError chan error) {
 	// we can't do the ConnectServer call outside the loop unless we find a way to track and re-init the connectServerArgs
 	//fmt.Println("process: initialized. closing initError")
 	close(initError)
+	initError = nil
 	//fmt.Println("process: waiting for queries")
 	for q := range s.queries {
 		//fmt.Printf("process: new query: len(query)=%d\n", len(q.query))
@@ -123,9 +128,6 @@ func (s *SWbemServices) process(initError chan error) {
 	}
 	//fmt.Println("process: queries channel closed")
 	s.queries = nil //set channel to nil so we know it is closed
-	//TODO: I think the Release/Clear calls can panic if things are in a bad state.
-	//TODO: May need to recover from panics and send error to method caller instead.
-	close(s.closeError)
 }
 
 // Query runs the WQL query using a SWbemServices instance and appends the values to dst.
