@@ -84,6 +84,7 @@ func (s *SWbemServices) process(initError chan error) {
 				s.closeError <- err // Should never be nil here.
 			}
 		}
+		close(s.closeError)
 	}()
 
 	//fmt.Println("process: starting background thread initialization")
@@ -127,9 +128,6 @@ func (s *SWbemServices) process(initError chan error) {
 	}
 	//fmt.Println("process: queries channel closed")
 	s.queries = nil //set channel to nil so we know it is closed
-	//TODO: I think the Release/Clear calls can panic if things are in a bad state.
-	//TODO: May need to recover from panics and send error to method caller instead.
-	s.closeError <- nil
 }
 
 // Query runs the WQL query using a SWbemServices instance and appends the values to dst.
