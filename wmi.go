@@ -31,7 +31,6 @@ import (
 	"log"
 	"os"
 	"reflect"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,6 +38,8 @@ import (
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
+	"github.com/hashicorp/go-multierror"
+	"github.com/scjalliance/comshim"
 )
 
 var l = log.New(os.Stdout, "", log.LstdFlags)
@@ -122,7 +123,14 @@ var DefaultClient = &Client{}
 // By default, the local machine and default namespace are used. These can be
 // changed using connectServerArgs. See
 // http://msdn.microsoft.com/en-us/library/aa393720.aspx for details.
-func (c *Client) Query(query string, dst interface{}, connectServerArgs ...interface{}) error {
+func (c *Client) Query(query string, dst interface{}, connectServerArgs ...interface{}) (err error) {
+	//  Be aware of reflections and COM usage.
+	defer func() {
+		if r := recover(); r != nil {
+			err = multierror.Append(err, fmt.Errorf("runtime panic; %v", err))
+		}
+	}()
+
 	dv := reflect.ValueOf(dst)
 	if dv.Kind() != reflect.Ptr || dv.IsNil() {
 		return ErrInvalidEntityType
@@ -133,19 +141,9 @@ func (c *Client) Query(query string, dst interface{}, connectServerArgs ...inter
 		return ErrInvalidEntityType
 	}
 
-	lock.Lock()
-	defer lock.Unlock()
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED)
-	if err != nil {
-		oleCode := err.(*ole.OleError).Code()
-		if oleCode != ole.S_OK && oleCode != S_FALSE {
-			return err
-		}
-	}
-	defer ole.CoUninitialize()
+	// Notify that we are going to use COM.
+	comshim.Add(1)
+	defer comshim.Done()
 
 	unknown, err := oleutil.CreateObject("WbemScripting.SWbemLocator")
 	if err != nil {
