@@ -4,12 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"runtime"
 	"sync"
 	"time"
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
+	"github.com/hashicorp/go-multierror"
+	"github.com/scjalliance/comshim"
 )
 
 var (
@@ -85,7 +86,7 @@ func (q *NotificationQuery) SetConnectServerArgs(args ...interface{}) {
 // Errors are usually happen on initialization phase (connect to WMI,
 // query execution, first result unmarshalling) so you could assume that
 // "it's either starts and going to give me notifications or fails fast enough".
-func (q *NotificationQuery) StartNotifications() error {
+func (q *NotificationQuery) StartNotifications() (err error) {
 	q.Lock()
 	if q.isRunning {
 		q.Unlock()
@@ -94,17 +95,16 @@ func (q *NotificationQuery) StartNotifications() error {
 	q.isRunning = true
 	q.Unlock()
 
-	// TODO: change COM initialization
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED)
-	if err != nil {
-		oleCode := err.(*ole.OleError).Code()
-		if oleCode != ole.S_OK && oleCode != S_FALSE {
-			return fmt.Errorf("ole.CoInitializeEx error: %v", err)
+	//  Be aware of reflections and COM usage.
+	defer func() {
+		if r := recover(); r != nil {
+			err = multierror.Append(err, fmt.Errorf("runtime panic; %v", err))
 		}
-	}
-	defer ole.CoUninitialize()
+	}()
+
+	// Notify that we are going to use COM.
+	comshim.Add(1)
+	defer comshim.Done()
 
 	// Connect to WMI service.
 	service, err := createWMIConnection(q.connectServerArgs...)
@@ -113,8 +113,8 @@ func (q *NotificationQuery) StartNotifications() error {
 	}
 	defer service.Release()
 
-	// Subscribe to the events.
-	// TODO: add named flags from other fork.
+	// Subscribe to the events. ExecNotificationQuery call must have that flags
+	// and no other.
 	sWbemEventSource, err := oleutil.CallMethod(
 		service,
 		"ExecNotificationQuery",
