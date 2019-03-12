@@ -65,14 +65,18 @@ func NewNotificationQuery(eventCh interface{}, query string) (*NotificationQuery
 //
 // Setting it to negative Duration makes that interval infinite.
 func (q *NotificationQuery) SetNotificationTimeout(t time.Duration) {
+	q.Lock()
+	defer q.Unlock()
 	if t < 0 {
 		q.queryTimeoutMs = -1
+		return
 	}
 	q.queryTimeoutMs = int64(t / time.Microsecond)
 }
 
 // SetConnectServerArgs sets `SWbemLocator.ConnectServer` args. Args are
 // directly passed to `ole` call and support most of primitive types.
+// Should be called before query being started.
 //
 // Args reference: https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemlocator-connectserver
 // Passing details: https://github.com/go-ole/go-ole/blob/master/idispatch_windows.go#L60
@@ -128,6 +132,8 @@ func (q *NotificationQuery) StartNotifications() (err error) {
 	eventSource := sWbemEventSource.ToIDispatch()
 	defer eventSource.Release()
 
+	reflectedResChan := reflect.ValueOf(q.eventCh)
+	eventType := reflectedResChan.Type().Elem()
 	for {
 		// If it is a time to stop - return.
 		if q.doneCh != nil {
@@ -144,8 +150,12 @@ func (q *NotificationQuery) StartNotifications() (err error) {
 		}
 		event := eventIUknown.ToIDispatch()
 
-		// Do something with event
+		// Unmarshal event.
+		e := reflect.New(eventType).Elem()
 		_ = event
+
+		// Send to the user.
+		reflectedResChan.Send(e)
 	}
 }
 
