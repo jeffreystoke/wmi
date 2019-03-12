@@ -2,11 +2,13 @@ package wmi
 
 import "time"
 
+// https://docs.microsoft.com/en-us/previous-versions/aa394323(v%3Dvs.85)
 type Win32_PerfRawData_PerfProc_Process struct {
 	IDProcess         uint32
 	WorkingSetPrivate uint64
 }
 
+// https://docs.microsoft.com/ru-ru/windows/desktop/CIMWin32Prov/win32-process
 type Win32_Process struct {
 	CSCreationClassName        string
 	CSName                     string
@@ -55,6 +57,7 @@ type Win32_Process struct {
 	WriteTransferCount         uint64
 }
 
+// https://msdn.microsoft.com/en-us/windows/hardware/aa394307(v=vs.71)
 type Win32_PerfRawData_PerfDisk_LogicalDisk struct {
 	AvgDiskBytesPerRead          uint64
 	AvgDiskBytesPerRead_Base     uint32
@@ -101,6 +104,7 @@ type Win32_PerfRawData_PerfDisk_LogicalDisk struct {
 	Timestamp_Sys100NS           uint64
 }
 
+// https://docs.microsoft.com/en-us/windows/desktop/cimwin32prov/win32-operatingsystem
 type Win32_OperatingSystem struct {
 	BootDevice                                string
 	BuildNumber                               string

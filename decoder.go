@@ -92,6 +92,12 @@ var timeType = reflect.TypeOf(time.Time{})
 //
 //    // Will be skipped during unmarshalling.
 //    MyHelperField   int wmi:"-"`
+//
+// Unmarshal prefers tag value over the field name, but ignores any name collisions.
+// So for example all the following fields will be resolved to the same value.
+//    Field  int
+//    Field1 int `wmi:"Field"`
+//    Field2 int `wmi:"Field"`
 func (d *Decoder) Unmarshal(src *ole.IDispatch, dst interface{}) (err error) {
 	defer func() {
 		// We use lots of reflection, so always be alert!

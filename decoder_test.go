@@ -96,7 +96,6 @@ func TestDecoder_Unmarshal_ModifiedFields(t *testing.T) {
 	if system.Name != "System" {
 		t.Errorf("Unexpected System process name; got %v, expected %v", system.Name, "System")
 	}
-	someOldDate := time.Unix(0, 0) // Hope ur PC doesn't run since 1970s.
 	if !(system.CreationDate.After(someOldDate) && system.CreationDate.Before(testStart)) {
 		t.Errorf("Unexoected System process creation date; %s", system.CreationDate)
 	}
