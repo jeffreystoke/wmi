@@ -21,8 +21,9 @@ import (
 // When we use `wmi.CreateQuery` the name of the struct should match querying
 // WMI class name.
 type Win32_Process struct {
-	ProcessId uint32
+	PID       uint32 `wmi:"ProcessId"`
 	Name      string
+	UserField int `wmi:"-"`
 }
 
 func main() {
@@ -35,7 +36,7 @@ func main() {
 		log.Fatal(err)
 	}
 	for _, v := range dst {
-		fmt.Println(v.ProcessId, v.Name)
+		fmt.Println(v.PID, v.Name)
 	}
 }
  ```
