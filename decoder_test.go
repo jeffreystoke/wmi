@@ -5,6 +5,7 @@ package wmi
 import (
 	"errors"
 	"fmt"
+	"os/user"
 	"testing"
 	"time"
 
@@ -228,5 +229,90 @@ func TestDecoder_Unmarshal_Unmarshaler(t *testing.T) {
 	err = Query(`SELECT * FROM Win32_Process WHERE ProcessId = 4`, &failer)
 	if err == nil {
 		t.Fatal("Failed to proxy Unmarshaler error to the caller")
+	}
+}
+
+// Win32_BIOS
+type miniBIOS struct {
+	Version             string
+	BIOSVersion         []string
+	BiosCharacteristics []uint16
+}
+
+func TestDecoder_Unmarshal_Slices(t *testing.T) {
+	var bioses []miniBIOS
+	query := "SELECT * FROM Win32_BIOS"
+	err := Query(query, &bioses)
+	if err != nil || len(bioses) < 1 {
+		t.Fatalf("Failed to query Win32_BIOS; %v", err)
+	}
+
+	t.Logf("The following test can fail on some tricky installs cos of unpredictable WMI results, ")
+	t.Logf("so please check test result manually before start to panic.")
+
+	t.Logf("Results for query %q:", query)
+	for _, v := range bioses {
+		t.Logf("%#v", v)
+	}
+
+	bios := bioses[0]
+	if len(bios.Version) < 1 {
+		t.Fatalf("Empty BIOS version string")
+	}
+	if len(bios.BIOSVersion) < 1 {
+		t.Errorf("Empty BIOS versions list")
+	} else if len(bios.BIOSVersion[0]) < 0 {
+		t.Errorf("Empty string in BIOS version liss; %v", bios.Version)
+	}
+	if len(bios.BiosCharacteristics) < 1 {
+		t.Errorf("Empty BIOS characteristics list")
+	} else if bios.BiosCharacteristics[0] == 0 {
+		t.Errorf("Unexpected BiosCharacteristics %v", bios.BiosCharacteristics[0])
+	}
+}
+
+// Win32_UserProfile
+// https://msdn.microsoft.com/en-us/library/ee886409(v=vs.85).aspx
+type userProfile struct {
+	SID string
+	// https://docs.microsoft.com/en-us/previous-versions/windows/desktop/usm/win32-folderredirectionhealth
+	Desktop struct {
+		OfflineFileNameFolderGUID string
+	}
+	AppDataRoaming *struct {
+		OfflineFileNameFolderGUID string
+	}
+}
+
+func TestDecoder_Unmarshal_EmbeddedStructures(t *testing.T) {
+	// Fetch current user.
+	u, err := user.Current()
+	if err != nil {
+		t.Fatalf("Failed to query current user")
+	}
+
+	// Extract user profile of the current user.
+	query := fmt.Sprintf(`SELECT * FROM Win32_UserProfile WHERE SID = '%s'`, u.Uid)
+	t.Logf(query)
+
+	var users []userProfile
+	if err := Query(query, &users); err != nil {
+		t.Fatalf("Failed to query Win32_UserProfile; %v", err)
+	}
+	if len(users) < 1 {
+		t.Fatalf("No profiles found")
+	}
+	t.Logf("Results:\n%#v", users)
+
+	profile := users[0]
+	if profile.SID != u.Uid {
+		t.Errorf("Queried unexpected user; got %v, expected %v", profile.SID, u.Uid)
+	}
+	// AFAIK should always be non-empty string.
+	if profile.AppDataRoaming.OfflineFileNameFolderGUID == "" {
+		t.Errorf("Queried empty OfflineFileNameFolderGUID for AppDataRoaming")
+	}
+	if profile.Desktop.OfflineFileNameFolderGUID == "" {
+		t.Errorf("Queried empty OfflineFileNameFolderGUID for Desktop")
 	}
 }

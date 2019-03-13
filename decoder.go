@@ -68,8 +68,10 @@ var timeType = reflect.TypeOf(time.Time{})
 // - time.Time
 // - string
 // - bool
+// - float32
 // - a pointer to one of types above
-// - []string and []byte.
+// - a slice of one of thus types
+// - structure types.
 //
 // To unmarshal more complex struct consider implementing `wmi.Unmarshaler`.
 // For such types Unmarshal just calls `.UnmarshalOLE` on the @src object .
@@ -159,124 +161,166 @@ func (d *Decoder) unmarshalField(fieldDst reflect.Value, prop *ole.VARIANT) erro
 		fieldDst = fieldDst.Elem()
 	}
 
-	// Then goes some kind of "smart" (too smart) field unmarshaling.
-	// It checks a type of a property value returned from COM object and then
-	// tries to fit it inside a given structure field with some possible
-	// conversions (e.g. possible integer conversions, string to int parsing
-	// and others).
+	// First of all try to unmarshal it as a simple type.
+	err := unmarshalSimpleValue(fieldDst, prop.Value())
+	if err != errSimpleVariantsExceeded {
+		return err // Either nil and value set or unexpected error.
+	}
 
-	switch val := prop.Value().(type) {
+	// Or we faced not so simple type. Do our best.
+	switch fieldDst.Kind() {
+	case reflect.Slice:
+		safeArray := prop.ToArray()
+		if safeArray == nil {
+			return fmt.Errorf("can't unmarshal %s into slice", prop.VT)
+		}
+		return unmarshalSlice(fieldDst, safeArray)
+	case reflect.Struct:
+		dispatch := prop.ToIDispatch()
+		if dispatch == nil {
+			return fmt.Errorf("can't unmarshal %s into struct", prop.VT)
+		}
+		fieldPointer := fieldDst.Addr().Interface()
+		return d.Unmarshal(dispatch, fieldPointer)
+	default:
+		// If we got nil value - handle it with magic config fields.
+		gotNilProp := reflect.TypeOf(prop.Value()) == nil
+		if gotNilProp && (isPtr || d.NonePtrZero) {
+			ptrNeedZero := isPtr && d.PtrNil
+			nonPtrAllowNil := !isPtr && d.NonePtrZero
+			if ptrNeedZero || nonPtrAllowNil {
+				fieldDstOrig.Set(reflect.Zero(fieldDstOrig.Type()))
+			}
+			return nil
+		}
+		return fmt.Errorf("unsupported type (%T)", prop.Value())
+	}
+}
+
+var (
+	errSimpleVariantsExceeded = errors.New("unknown simple type")
+)
+
+// Here goes some kind of "smart" (too smart) field unmarshalling.
+// It checks a type of a property value returned from COM object and then
+// tries to fit it inside a given structure field with some possible
+// conversions (e.g. possible integer conversions, string to int parsing
+// and others).
+func unmarshalSimpleValue(dst reflect.Value, value interface{}) error {
+	switch val := value.(type) {
 	case int8, int16, int32, int64, int:
-		v := reflect.ValueOf(val).Int() // TODO: is it really necessary?
-		switch fieldDst.Kind() {
+		v := reflect.ValueOf(val).Int()
+		switch dst.Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			fieldDst.SetInt(v)
+			dst.SetInt(v)
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			fieldDst.SetUint(uint64(v))
+			dst.SetUint(uint64(v))
 		default:
 			return errors.New("not an integer class")
 		}
 	case uint8, uint16, uint32, uint64:
 		v := reflect.ValueOf(val).Uint()
-		switch fieldDst.Kind() {
+		switch dst.Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			fieldDst.SetInt(int64(v))
+			dst.SetInt(int64(v))
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			fieldDst.SetUint(v)
+			dst.SetUint(v)
 		default:
 			return errors.New("not an integer class")
 		}
 	case bool:
-		switch fieldDst.Kind() {
+		switch dst.Kind() {
 		case reflect.Bool:
-			fieldDst.SetBool(val)
+			dst.SetBool(val)
 		default:
 			return errors.New("not a bool")
 		}
 	case float32:
-		switch fieldDst.Kind() {
+		switch dst.Kind() {
 		case reflect.Float32:
-			fieldDst.SetFloat(float64(val))
+			dst.SetFloat(float64(val))
 		default:
 			return errors.New("not a float32")
 		}
 	case string:
-		switch fieldDst.Kind() {
-		case reflect.String:
-			fieldDst.SetString(val)
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			iv, err := strconv.ParseInt(val, 10, 64)
-			if err != nil {
-				return err
-			}
-			fieldDst.SetInt(iv)
-		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			uv, err := strconv.ParseUint(val, 10, 64)
-			if err != nil {
-				return err
-			}
-			fieldDst.SetUint(uv)
-		case reflect.Struct:
-			switch t := fieldDst.Type(); t {
-			case timeType:
-				if len(val) == 25 {
-					mins, err := strconv.Atoi(val[22:])
-					if err != nil {
-						return err
-					}
-					val = val[:22] + fmt.Sprintf("%02d%02d", mins/60, mins%60)
-				}
-				t, err := time.Parse("20060102150405.000000-0700", val)
-				if err != nil {
-					return err
-				}
-				fieldDst.Set(reflect.ValueOf(t))
-			default:
-				return fmt.Errorf("can't deserealize string into %s", t)
-			}
-		}
+		return smartUnmarshalString(dst, val)
 	default:
-		if fieldDst.Kind() == reflect.Slice {
-			switch fieldDst.Type().Elem().Kind() {
-			case reflect.String:
-				safeArray := prop.ToArray()
-				if safeArray != nil {
-					arr := safeArray.ToValueArray()
-					fArr := reflect.MakeSlice(fieldDst.Type(), len(arr), len(arr))
-					for i, v := range arr {
-						s := fArr.Index(i)
-						s.SetString(v.(string))
-					}
-					fieldDst.Set(fArr)
-				}
-			case reflect.Uint8:
-				safeArray := prop.ToArray()
-				if safeArray != nil {
-					arr := safeArray.ToValueArray()
-					fArr := reflect.MakeSlice(fieldDst.Type(), len(arr), len(arr))
-					for i, v := range arr {
-						s := fArr.Index(i)
-						s.SetUint(reflect.ValueOf(v).Uint())
-					}
-					fieldDst.Set(fArr)
-				}
-			default:
-				return fmt.Errorf("unsupported slice type (%T)", val)
-			}
-		} else {
-			// If we got nil value - handle it with magic config fields.
-			gotNilProp := reflect.TypeOf(prop.Value()) == nil
-			if gotNilProp && (isPtr || d.NonePtrZero) {
-				ptrNeedZero := isPtr && d.PtrNil
-				nonPtrAllowNil := !isPtr && d.NonePtrZero
-				if ptrNeedZero || nonPtrAllowNil {
-					fieldDstOrig.Set(reflect.Zero(fieldDstOrig.Type()))
-				}
-				return nil
-			}
-			return fmt.Errorf("unsupported type (%T)", val)
+		return errSimpleVariantsExceeded
+	}
+	return nil
+}
+
+func unmarshalSlice(fieldDst reflect.Value, safeArray *ole.SafeArrayConversion) error {
+	arr := safeArray.ToValueArray()
+	resultArr := reflect.MakeSlice(fieldDst.Type(), len(arr), len(arr))
+	for i, v := range arr {
+		s := resultArr.Index(i)
+		err := unmarshalSimpleValue(s, v)
+		if err != nil {
+			return fmt.Errorf("can't put %T into []%s", v, fieldDst.Type().Elem().Kind())
 		}
 	}
+	fieldDst.Set(resultArr)
+	return nil
+}
+
+func smartUnmarshalString(fieldDst reflect.Value, val string) error {
+	switch fieldDst.Kind() {
+	case reflect.String:
+		fieldDst.SetString(val)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		iv, err := strconv.ParseInt(val, 10, 64)
+		if err != nil {
+			return err
+		}
+		fieldDst.SetInt(iv)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		uv, err := strconv.ParseUint(val, 10, 64)
+		if err != nil {
+			return err
+		}
+		fieldDst.SetUint(uv)
+	case reflect.Struct:
+		switch t := fieldDst.Type(); t {
+		case timeType:
+			return unmarshalTime(fieldDst, val)
+		default:
+			return fmt.Errorf("can't deserialize string into struct %T", fieldDst.Interface())
+		}
+	default:
+		return fmt.Errorf("can't deserealize string into %s", fieldDst.Kind())
+	}
+	return nil
+}
+
+// parses CIM_DATETIME from string format "yyyymmddHHMMSS.mmmmmmsUUU"
+// where
+//		"mmmmmm"	Six-digit number of microseconds in the second.
+//		"s"			Plus sign (+) or minus sign (-) to indicate a positive or
+//					negative offset from UTC.
+// 		"UUU" 	 	Three-digit offset indicating the number of minutes that the
+// 					originating time zone deviates from UTC.
+// 		(other are obvious)
+// ref: https://docs.microsoft.com/en-us/windows/desktop/wmisdk/cim-datetime
+func unmarshalTime(fieldDst reflect.Value, val string) error {
+	const signPos = 21
+	if sign := val[signPos]; sign == '+' || sign == '-' {
+		// golang can't understand such timezone offset, so transform minute
+		// offset to the "HHMM" tz offset.
+		timeZonePart := val[signPos+1:]
+		minOffset, err := strconv.Atoi(timeZonePart)
+		if err != nil {
+			return err
+		}
+		isoTzOffset := fmt.Sprintf("%02d%02d", minOffset/60, minOffset%60)
+		val = val[:signPos+1] + isoTzOffset
+	}
+	// Parsing format: "yyyymmddHHMMSS.mmmmmmsHHMM"
+	t, err := time.Parse("20060102150405.000000-0700", val)
+	if err != nil {
+		return err
+	}
+	fieldDst.Set(reflect.ValueOf(t))
 	return nil
 }
 
