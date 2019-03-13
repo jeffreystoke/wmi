@@ -26,6 +26,8 @@ const (
 // NotificationQuery represents subscription to the WMI events.
 // For more info see https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemservices-execnotificationquery
 type NotificationQuery struct {
+	Decoder
+
 	sync.Mutex
 	query             string
 	isRunning         bool
@@ -48,6 +50,7 @@ func NewNotificationQuery(eventCh interface{}, query string) (*NotificationQuery
 		return nil, errors.New("eventCh has incorrect type; should be `chan T` or `chan *T`")
 	}
 	q := NotificationQuery{
+		doneCh:  make(chan struct{}),
 		eventCh: eventCh,
 		query:   query,
 	}
@@ -132,14 +135,17 @@ func (q *NotificationQuery) StartNotifications() (err error) {
 	eventSource := sWbemEventSource.ToIDispatch()
 	defer eventSource.Release()
 
+	reflectedDoneChan := reflect.ValueOf(q.doneCh)
 	reflectedResChan := reflect.ValueOf(q.eventCh)
 	eventType := reflectedResChan.Type().Elem()
 	for {
-		// If it is a time to stop - return.
-		if q.doneCh != nil {
-			close(q.doneCh)
+		// If it is a time to stop somebody will listen on doneCh.
+		select {
+		case q.doneCh <- struct{}{}:
 			return nil
+		default:
 		}
+
 		// Or try to query new events waiting no longer than queryTimeoutMs.
 		eventIUknown, err := eventSource.CallMethod("NextEvent", q.queryTimeoutMs)
 		if err != nil {
@@ -151,11 +157,16 @@ func (q *NotificationQuery) StartNotifications() (err error) {
 		event := eventIUknown.ToIDispatch()
 
 		// Unmarshal event.
-		e := reflect.New(eventType).Elem()
-		_ = event
+		e := reflect.New(eventType)
+		if err := q.Unmarshal(event, e.Interface()); err != nil {
+			return fmt.Errorf("failed to unmarshal event; %s", err)
+		}
 
 		// Send to the user.
-		reflectedResChan.Send(e)
+		sent := trySend(reflectedResChan, reflectedDoneChan, e.Elem())
+		if !sent {
+			return nil // Query stopped
+		}
 	}
 }
 
@@ -165,10 +176,9 @@ func (q *NotificationQuery) StartNotifications() (err error) {
 func (q *NotificationQuery) Stop() {
 	q.Lock()
 	defer q.Unlock()
-	if q.isRunning {
+	if !q.isRunning {
 		return
 	}
-	q.doneCh = make(chan struct{})
 	<-q.doneCh
 	q.isRunning = false
 }
@@ -213,4 +223,26 @@ func isChannelTypeOK(eventCh interface{}) bool {
 		return elemT.Elem().Kind() == reflect.Struct
 	}
 	return false
+}
+
+// trySend does a send in select block like:
+//     select {
+//     case resCh <- resEl:
+//         return true
+//     case doneCh <- struct{}{}:
+//         return false
+//     }
+func trySend(resCh, doneCh, resEl reflect.Value) (sendSuccessful bool) {
+	resCase := reflect.SelectCase{
+		Dir:  reflect.SelectSend,
+		Chan: resCh,
+		Send: resEl,
+	}
+	doneCase := reflect.SelectCase{
+		Dir:  reflect.SelectSend,
+		Chan: doneCh,
+		Send: reflect.ValueOf(struct{}{}),
+	}
+	idx, _, _ := reflect.Select([]reflect.SelectCase{resCase, doneCase})
+	return idx == 0
 }
