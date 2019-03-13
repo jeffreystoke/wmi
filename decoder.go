@@ -293,14 +293,29 @@ func smartUnmarshalString(fieldDst reflect.Value, val string) error {
 	return nil
 }
 
+// parses CIM_DATETIME from string format "yyyymmddHHMMSS.mmmmmmsUUU"
+// where
+//		"mmmmmm"	Six-digit number of microseconds in the second.
+//		"s"			Plus sign (+) or minus sign (-) to indicate a positive or
+//					negative offset from UTC.
+// 		"UUU" 	 	Three-digit offset indicating the number of minutes that the
+// 					originating time zone deviates from UTC.
+// 		(other are obvious)
+// ref: https://docs.microsoft.com/en-us/windows/desktop/wmisdk/cim-datetime
 func unmarshalTime(fieldDst reflect.Value, val string) error {
-	if len(val) == 25 {
-		mins, err := strconv.Atoi(val[22:])
+	const signPos = 21
+	if sign := val[signPos]; sign == '+' || sign == '-' {
+		// golang can't understand such timezone offset, so transform minute
+		// offset to the "HHMM" tz offset.
+		timeZonePart := val[signPos+1:]
+		minOffset, err := strconv.Atoi(timeZonePart)
 		if err != nil {
 			return err
 		}
-		val = val[:22] + fmt.Sprintf("%02d%02d", mins/60, mins%60)
+		isoTzOffset := fmt.Sprintf("%02d%02d", minOffset/60, minOffset%60)
+		val = val[:signPos+1] + isoTzOffset
 	}
+	// Parsing format: "yyyymmddHHMMSS.mmmmmmsHHMM"
 	t, err := time.Parse("20060102150405.000000-0700", val)
 	if err != nil {
 		return err
