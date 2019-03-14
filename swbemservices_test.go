@@ -7,7 +7,7 @@ import (
 )
 
 func TestWbemQuery(t *testing.T) {
-	s, err := InitializeSWbemServices(DefaultClient)
+	s, err := ConnectSWbemServices()
 	if err != nil {
 		t.Fatalf("InitializeSWbemServices: %s", err)
 	}
@@ -43,7 +43,7 @@ func TestWbemQuery(t *testing.T) {
 }
 
 func TestWbemQueryNamespace(t *testing.T) {
-	s, err := InitializeSWbemServices(DefaultClient)
+	s, err := NewSWbemServices()
 	if err != nil {
 		t.Fatalf("InitializeSWbemServices: %s", err)
 	}
@@ -69,7 +69,7 @@ func TestWbemQueryNamespace(t *testing.T) {
 //Individual benchmarks:
 //go test -run=NONE -bench=NewVersion -benchtime=120s
 func BenchmarkNewVersion(b *testing.B) {
-	s, err := InitializeSWbemServices(DefaultClient)
+	s, err := ConnectSWbemServices()
 	if err != nil {
 		b.Fatalf("InitializeSWbemServices: %s", err)
 	}

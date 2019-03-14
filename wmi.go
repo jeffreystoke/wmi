@@ -1,41 +1,13 @@
 // +build windows
 
-/*
-Package wmi provides a WQL interface for WMI on Windows.
-
-Example code to print names of running processes:
-
-	type Win32_Process struct {
-		Name string
-	}
-
-	func main() {
-		var dst []Win32_Process
-		q := wmi.CreateQuery(&dst, "")
-		err := wmi.Query(q, &dst)
-		if err != nil {
-			log.Fatal(err)
-		}
-		for i, v := range dst {
-			println(i, v.Name)
-		}
-	}
-
-*/
 package wmi
 
 import (
 	"bytes"
 	"errors"
-	"fmt"
+	"github.com/hashicorp/go-multierror"
 	"reflect"
 	"strings"
-	"sync"
-
-	"github.com/go-ole/go-ole"
-	"github.com/go-ole/go-ole/oleutil"
-	"github.com/hashicorp/go-multierror"
-	"github.com/scjalliance/comshim"
 )
 
 var (
@@ -43,11 +15,7 @@ var (
 	// ErrNilCreateObject is the error returned if CreateObject returns nil even
 	// if the error was nil.
 	ErrNilCreateObject = errors.New("wmi: create object returned nil")
-	lock               sync.Mutex
 )
-
-// S_FALSE is returned by CoInitializeEx if it was already called on this thread.
-const S_FALSE = 0x00000001
 
 // QueryNamespace invokes Query with the given namespace on the local machine.
 func QueryNamespace(query string, dst interface{}, namespace string) error {
@@ -71,6 +39,52 @@ func Query(query string, dst interface{}, connectServerArgs ...interface{}) erro
 		return DefaultClient.Query(query, dst, connectServerArgs...)
 	}
 	return DefaultClient.SWbemServicesClient.Query(query, dst, connectServerArgs...)
+}
+
+// CreateQuery returns a WQL query string that queries all columns of @src.
+//
+// @src 	could be T, *T, []T, or *[]T;
+// @where 	is an optional string that is appended to the query, to be used with
+// 			WHERE clauses. In such a case, the "WHERE" string should appear at
+// 			the beginning.
+func CreateQuery(src interface{}, where string) string {
+	s := reflect.Indirect(reflect.ValueOf(src))
+	t := s.Type()
+	if s.Kind() == reflect.Slice {
+		t = t.Elem()
+	}
+	return CreateQueryFrom(src, t.Name(), where)
+}
+
+// CreateQuery returns a WQL query string that queries all columns of @src from
+// class @from with condition @where (optional).
+// N.B. The call is the same as `CreateQuery` but uses @from instead of structure
+// name as a class name.
+func CreateQueryFrom(src interface{}, from, where string) string {
+	s := reflect.Indirect(reflect.ValueOf(src))
+	t := s.Type()
+	if s.Kind() == reflect.Slice {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return ""
+	}
+
+	var b bytes.Buffer
+	b.WriteString("SELECT ")
+	var fields []string
+	for i := 0; i < t.NumField(); i++ {
+		name := getFieldName(t.Field(i))
+		if name == "-" {
+			continue
+		}
+		fields = append(fields, name)
+	}
+	b.WriteString(strings.Join(fields, ", "))
+	b.WriteString(" FROM ")
+	b.WriteString(from)
+	b.WriteString(" " + where)
+	return b.String()
 }
 
 // A Client is an WMI query client.
@@ -100,179 +114,17 @@ var DefaultClient = &Client{}
 // changed using connectServerArgs. See
 // http://msdn.microsoft.com/en-us/library/aa393720.aspx for details.
 func (c *Client) Query(query string, dst interface{}, connectServerArgs ...interface{}) (err error) {
-	//  Be aware of reflections and COM usage.
-	defer func() {
-		if r := recover(); r != nil {
-			err = multierror.Append(err, fmt.Errorf("runtime panic; %v", err))
-		}
-	}()
-
-	dv := reflect.ValueOf(dst)
-	if dv.Kind() != reflect.Ptr || dv.IsNil() {
-		return ErrInvalidEntityType
-	}
-	dv = dv.Elem()
-	mat, elemType := checkMultiArg(dv)
-	if mat == multiArgTypeInvalid {
-		return ErrInvalidEntityType
-	}
-
-	// Notify that we are going to use COM.
-	comshim.Add(1)
-	defer comshim.Done()
-
-	unknown, err := oleutil.CreateObject("WbemScripting.SWbemLocator")
-	if err != nil {
-		return err
-	} else if unknown == nil {
-		return ErrNilCreateObject
-	}
-	defer unknown.Release()
-
-	wmi, err := unknown.QueryInterface(ole.IID_IDispatch)
-	if err != nil {
-		return err
-	}
-	defer wmi.Release()
-
-	// service is a SWbemServices
-	serviceRaw, err := oleutil.CallMethod(wmi, "ConnectServer", connectServerArgs...)
-	if err != nil {
-		return err
-	}
-	service := serviceRaw.ToIDispatch()
-	defer serviceRaw.Clear()
-
-	// result is a SWBemObjectSet
-	resultRaw, err := oleutil.CallMethod(service, "ExecQuery", query)
-	if err != nil {
-		return err
-	}
-	result := resultRaw.ToIDispatch()
-	defer resultRaw.Clear()
-
-	count, err := oleInt64(result, "Count")
-	if err != nil {
-		return err
-	}
-
-	enumProperty, err := result.GetProperty("_NewEnum")
-	if err != nil {
-		return err
-	}
-	defer enumProperty.Clear()
-
-	enum, err := enumProperty.ToIUnknown().IEnumVARIANT(ole.IID_IEnumVariant)
-	if err != nil {
-		return err
-	}
-	if enum == nil {
-		return fmt.Errorf("can't get IEnumVARIANT, enum is nil")
-	}
-	defer enum.Release()
-
-	// Initialize a slice with Count capacity
-	dv.Set(reflect.MakeSlice(dv.Type(), 0, int(count)))
-
-	var errFieldMismatch error
-	for itemRaw, length, err := enum.Next(1); length > 0; itemRaw, length, err = enum.Next(1) {
+	client := c.SWbemServicesClient
+	if client == nil {
+		client, err = NewSWbemServices()
 		if err != nil {
 			return err
 		}
-
-		err := func() error {
-			item := itemRaw.ToIDispatch()
-			defer item.Release()
-
-			ev := reflect.New(elemType)
-			if err = c.Unmarshal(item, ev.Interface()); err != nil {
-				if _, ok := err.(*ErrFieldMismatch); ok {
-					// We continue loading entities even in the face of field mismatch errors.
-					// If we encounter any other error, that other error is returned. Otherwise,
-					// an ErrFieldMismatch is returned.
-					errFieldMismatch = err
-				} else {
-					return err
-				}
+		defer func() {
+			if clErr := client.Close(); clErr != nil {
+				err = multierror.Append(err, clErr)
 			}
-			if mat != multiArgTypeStructPtr {
-				ev = ev.Elem()
-			}
-			dv.Set(reflect.Append(dv, ev))
-			return nil
 		}()
-		if err != nil {
-			return err
-		}
 	}
-	return errFieldMismatch
-}
-
-// CreateQuery returns a WQL query string that queries all columns of src. where
-// is an optional string that is appended to the query, to be used with WHERE
-// clauses. In such a case, the "WHERE" string should appear at the beginning.
-func CreateQuery(src interface{}, where string) string {
-	var b bytes.Buffer
-	b.WriteString("SELECT ")
-	s := reflect.Indirect(reflect.ValueOf(src))
-	t := s.Type()
-	if s.Kind() == reflect.Slice {
-		t = t.Elem()
-	}
-	if t.Kind() != reflect.Struct {
-		return ""
-	}
-	var fields []string
-	for i := 0; i < t.NumField(); i++ {
-		name := getFieldName(t.Field(i))
-		if name == "-" {
-			continue
-		}
-		fields = append(fields, name)
-	}
-	b.WriteString(strings.Join(fields, ", "))
-	b.WriteString(" FROM ")
-	b.WriteString(t.Name())
-	b.WriteString(" " + where)
-	return b.String()
-}
-
-type multiArgType int
-
-const (
-	multiArgTypeInvalid multiArgType = iota
-	multiArgTypeStruct
-	multiArgTypeStructPtr
-)
-
-// checkMultiArg checks that v has type []S, []*S for some struct type S.
-//
-// It returns what category the slice's elements are, and the reflect.Type
-// that represents S.
-func checkMultiArg(v reflect.Value) (m multiArgType, elemType reflect.Type) {
-	if v.Kind() != reflect.Slice {
-		return multiArgTypeInvalid, nil
-	}
-	elemType = v.Type().Elem()
-	switch elemType.Kind() {
-	case reflect.Struct:
-		return multiArgTypeStruct, elemType
-	case reflect.Ptr:
-		elemType = elemType.Elem()
-		if elemType.Kind() == reflect.Struct {
-			return multiArgTypeStructPtr, elemType
-		}
-	}
-	return multiArgTypeInvalid, nil
-}
-
-func oleInt64(item *ole.IDispatch, prop string) (int64, error) {
-	v, err := oleutil.GetProperty(item, prop)
-	if err != nil {
-		return 0, err
-	}
-	defer v.Clear()
-
-	i := int64(v.Val)
-	return i, nil
+	return client.Query(query, dst, connectServerArgs...)
 }

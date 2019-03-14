@@ -4,6 +4,7 @@ package wmi
 
 import (
 	"fmt"
+	"github.com/scjalliance/comshim"
 	"os"
 	"runtime"
 	"sync"
@@ -19,7 +20,7 @@ func TestWbemMemory(t *testing.T) {
 	if os.Getenv("TEST_MEM") == "" {
 		t.Skip("Skipping TestWbemMemory; $TEST_MEM is not set")
 	}
-	s, err := InitializeSWbemServices(DefaultClient)
+	s, err := NewSWbemServices()
 	if err != nil {
 		t.Fatalf("InitializeSWbemServices: %s", err)
 	}
@@ -112,7 +113,6 @@ func TestMemoryWMIConcurrent(t *testing.T) {
 	//fmt.Printf("Final Private Memory: %5.1fMB  MemStats.Alloc: %4.1fMB  MemStats.TotalAlloc: %5.1fMB\n", privateMB, allocMB, allocTotalMB)
 }
 
-var lockthread sync.Mutex
 var refcount1 int32
 var refcount2 int32
 
@@ -122,19 +122,8 @@ func getRSS(url string, xmlhttp *ole.IDispatch, MinimalTest bool) (int, error) {
 	// call using url,nil to see memory leak
 	if xmlhttp == nil {
 		//Initialize inside loop if not passed in from outer section
-		lockthread.Lock()
-		defer lockthread.Unlock()
-		runtime.LockOSThread()
-		defer runtime.UnlockOSThread()
-
-		err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED)
-		if err != nil {
-			oleCode := err.(*ole.OleError).Code()
-			if oleCode != ole.S_OK && oleCode != S_FALSE {
-				return 0, err
-			}
-		}
-		defer ole.CoUninitialize()
+		comshim.Add(1)
+		defer comshim.Done()
 
 		//fmt.Println("CreateObject Microsoft.XMLHTTP")
 		unknown, err := oleutil.CreateObject("Microsoft.XMLHTTP")
@@ -239,19 +228,11 @@ func TestMemoryOLE(t *testing.T) {
 	var unknown *ole.IUnknown
 	var xmlhttp *ole.IDispatch
 	if !leakMemory {
-		runtime.LockOSThread()
-		defer runtime.UnlockOSThread()
-
-		err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED)
-		if err != nil {
-			oleCode := err.(*ole.OleError).Code()
-			if oleCode != ole.S_OK && oleCode != S_FALSE {
-				t.Fatal(err)
-			}
-		}
-		defer ole.CoUninitialize()
+		comshim.Add(1)
+		defer comshim.Done()
 
 		//fmt.Println("CreateObject Microsoft.XMLHTTP")
+		var err error
 		unknown, err = oleutil.CreateObject("Microsoft.XMLHTTP")
 		if err != nil {
 			t.Fatal(err)
