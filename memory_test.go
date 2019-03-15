@@ -15,6 +15,8 @@ import (
 	"github.com/go-ole/go-ole/oleutil"
 )
 
+const memReps = 50 * 1000
+
 // Run using: `TEST_MEM=1 go test -run TestWbemMemory -timeout 60m`
 func TestWbemMemory(t *testing.T) {
 	if os.Getenv("TEST_MEM") == "" {
@@ -24,22 +26,57 @@ func TestWbemMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitializeSWbemServices: %s", err)
 	}
+
 	start := time.Now()
-	limit := 500000
-	fmt.Printf("Benchmark Iterations: %d (Memory should stabilize around 7MB after ~3000)\n", limit)
+	fmt.Printf("Benchmark Iterations: %d (Memory should stabilize around 7MB after ~3000)\n", memReps)
+
 	var privateMB, allocMB, allocTotalMB float64
-	for i := 0; i < limit; i++ {
-		privateMB, allocMB, allocTotalMB = wbemGetMemoryUsageMB(s)
+	for i := 0; i < memReps; i++ {
+		privateMB, allocMB, allocTotalMB = wbemGetMemoryUsageMB(t, s)
 		if i%100 == 0 {
-			privateMB, allocMB, allocTotalMB = wbemGetMemoryUsageMB(s)
-			fmt.Printf("Time: %4ds  Count: %5d  Private Memory: %5.1fMB  MemStats.Alloc: %4.1fMB  MemStats.TotalAlloc: %5.1fMB\n", time.Now().Sub(start)/time.Second, i, privateMB, allocMB, allocTotalMB)
+			fmt.Printf("Time: %4ds  Count: %5d  ", time.Now().Sub(start)/time.Second, i)
+			printlnMemUsage(privateMB, allocMB, allocTotalMB)
 		}
 	}
+
 	errClose := s.Close()
 	if errClose != nil {
 		t.Fatalf("Close: %s", err)
 	}
-	fmt.Printf("Final Time: %4ds  Private Memory: %5.1fMB  MemStats.Alloc: %4.1fMB  MemStats.TotalAlloc: %5.1fMB\n", time.Now().Sub(start)/time.Second, privateMB, allocMB, allocTotalMB)
+
+	fmt.Printf("Final Time: %4ds ", time.Now().Sub(start)/time.Second)
+	printlnMemUsage(privateMB, allocMB, allocTotalMB)
+}
+
+// Run using: `TEST_MEM=1 go test -run TestWbemConnectionMemory -timeout 60m`
+func TestWbemConnectionMemory(t *testing.T) {
+	if os.Getenv("TEST_MEM") == "" {
+		t.Skip("Skipping TestWbemMemory; $TEST_MEM is not set")
+	}
+	s, err := ConnectSWbemServices()
+	if err != nil {
+		t.Fatalf("InitializeSWbemServices: %s", err)
+	}
+
+	start := time.Now()
+	fmt.Printf("Benchmark Iterations: %d (Memory should stabilize around 7MB after ~3000)\n", memReps)
+
+	var privateMB, allocMB, allocTotalMB float64
+	for i := 0; i < memReps; i++ {
+		privateMB, allocMB, allocTotalMB = wbemConnGetMemoryUsageMB(t, s)
+		if i%100 == 0 {
+			fmt.Printf("Time: %4ds  Count: %5d  ", time.Now().Sub(start)/time.Second, i)
+			printlnMemUsage(privateMB, allocMB, allocTotalMB)
+		}
+	}
+
+	errClose := s.Close()
+	if errClose != nil {
+		t.Fatalf("Close: %s", err)
+	}
+
+	fmt.Printf("Final Time: %4ds ", time.Now().Sub(start)/time.Second)
+	printlnMemUsage(privateMB, allocMB, allocTotalMB)
 }
 
 // Run using: `TEST_MEM=1 go test -run TestMemoryWMISimple -timeout 60m`
@@ -49,21 +86,19 @@ func TestMemoryWMISimple(t *testing.T) {
 	}
 
 	start := time.Now()
-	limit := 500000
-	fmt.Printf("Benchmark Iterations: %d (Memory should stabilize around 7MB after ~3000)\n", limit)
+	fmt.Printf("Benchmark Iterations: %d (Memory should stabilize around 7MB after ~3000)\n", memReps)
+
 	var privateMB, allocMB, allocTotalMB float64
-	//var dst []Win32_PerfRawData_PerfDisk_LogicalDisk
-	//q := CreateQuery(&dst, "")
-	for i := 0; i < limit; i++ {
-		privateMB, allocMB, allocTotalMB = getMemoryUsageMB()
+	for i := 0; i < memReps; i++ {
+		privateMB, allocMB, allocTotalMB = getMemoryUsageMB(t)
 		if i%1000 == 0 {
-			//privateMB, allocMB, allocTotalMB = getMemoryUsageMB()
-			fmt.Printf("Time: %4ds  Count: %5d  Private Memory: %5.1fMB  MemStats.Alloc: %4.1fMB  MemStats.TotalAlloc: %5.1fMB\n", time.Now().Sub(start)/time.Second, i, privateMB, allocMB, allocTotalMB)
+			fmt.Printf("Time: %4ds  Count: %5d  ", time.Now().Sub(start)/time.Second, i)
+			printlnMemUsage(privateMB, allocMB, allocTotalMB)
 		}
-		//Query(q, &dst)
 	}
-	//privateMB, allocMB, allocTotalMB = getMemoryUsageMB()
-	fmt.Printf("Final Time: %4ds  Private Memory: %5.1fMB  MemStats.Alloc: %4.1fMB  MemStats.TotalAlloc: %5.1fMB\n", time.Now().Sub(start)/time.Second, privateMB, allocMB, allocTotalMB)
+
+	fmt.Printf("Final Time: %4ds ", time.Now().Sub(start)/time.Second)
+	printlnMemUsage(privateMB, allocMB, allocTotalMB)
 }
 
 // Run using: `TEST_MEM=1 go test -run TestMemoryWMIConcurrent -timeout 60m`
@@ -72,18 +107,19 @@ func TestMemoryWMIConcurrent(t *testing.T) {
 		t.Skip("Skipping TestMemoryWMIConcurrent; $TEST_MEM is not set")
 	}
 
-	start := time.Now()
-	limit := 50000
-	fmt.Println("Total Iterations:", limit)
+	fmt.Println("Total Iterations:", memReps)
 	fmt.Println("No panics mean it succeeded. Other errors are OK. Memory should stabilize after ~1500 iterations.")
 	runtime.GOMAXPROCS(2)
-	wg := sync.WaitGroup{}
+
+	start := time.Now()
+	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
-		for i := 0; i < limit; i++ {
+		for i := 0; i < memReps; i++ {
 			if i%500 == 0 {
-				privateMB, allocMB, allocTotalMB := getMemoryUsageMB()
-				fmt.Printf("Time: %4ds  Count: %4d  Private Memory: %5.1fMB  MemStats.Alloc: %4.1fMB  MemStats.TotalAlloc: %5.1fMB\n", time.Now().Sub(start)/time.Second, i, privateMB, allocMB, allocTotalMB)
+				privateMB, allocMB, allocTotalMB := getMemoryUsageMB(t)
+				fmt.Printf("Time: %4ds  Count: %5d  ", time.Now().Sub(start)/time.Second, i)
+				printlnMemUsage(privateMB, allocMB, allocTotalMB)
 			}
 			var dst []Win32_PerfRawData_PerfDisk_LogicalDisk
 			q := CreateQuery(&dst, "")
@@ -95,10 +131,7 @@ func TestMemoryWMIConcurrent(t *testing.T) {
 		wg.Done()
 	}()
 	go func() {
-		for i := 0; i > -limit; i-- {
-			//if i%500 == 0 {
-			//	fmt.Println(i)
-			//}
+		for i := 0; i > -memReps; i-- {
 			var dst []Win32_OperatingSystem
 			q := CreateQuery(&dst, "")
 			err := Query(q, &dst)
@@ -109,8 +142,7 @@ func TestMemoryWMIConcurrent(t *testing.T) {
 		wg.Done()
 	}()
 	wg.Wait()
-	//privateMB, allocMB, allocTotalMB := getMemoryUsageMB()
-	//fmt.Printf("Final Private Memory: %5.1fMB  MemStats.Alloc: %4.1fMB  MemStats.TotalAlloc: %5.1fMB\n", privateMB, allocMB, allocTotalMB)
+	fmt.Printf("Final Time: %4ds\n", time.Now().Sub(start)/time.Second)
 }
 
 var refcount1 int32
@@ -252,8 +284,9 @@ func TestMemoryOLE(t *testing.T) {
 	totalItems := uint64(0)
 	for i := 0; i < limit; i++ {
 		if i%2000 == 0 {
-			privateMB, allocMB, allocTotalMB := getMemoryUsageMB()
-			fmt.Printf("Time: %4ds  Count: %7d  Private Memory: %5.1fMB  MemStats.Alloc: %4.1fMB  MemStats.TotalAlloc: %5.1fMB  %7d/%7d\n", time.Now().Sub(start)/time.Second, i, privateMB, allocMB, allocTotalMB, refcount1, refcount2)
+			privateMB, allocMB, allocTotalMB := getMemoryUsageMB(t)
+			fmt.Printf("Time: %4ds  Count: %7d  ", time.Now().Sub(start)/time.Second, i)
+			printlnMemUsage(privateMB, allocMB, allocTotalMB)
 		}
 		//This should use less than 10MB for 1 million iterations if xmlhttp was initialized above
 		//On Server 2016 or Windows 10 changing leakMemory=true above will cause it to leak ~1.5MB per 10000 calls to unknown.QueryInterface
@@ -263,8 +296,10 @@ func TestMemoryOLE(t *testing.T) {
 		}
 		totalItems += uint64(count)
 	}
-	privateMB, allocMB, allocTotalMB := getMemoryUsageMB()
-	fmt.Printf("Final totalItems: %d  Private Memory: %5.1fMB  MemStats.Alloc: %4.1fMB  MemStats.TotalAlloc: %5.1fMB\n", totalItems, privateMB, allocMB, allocTotalMB)
+	privateMB, allocMB, allocTotalMB := getMemoryUsageMB(t)
+	fmt.Printf("Final totalItems: %d ", totalItems)
+	printlnMemUsage(privateMB, allocMB, allocTotalMB)
+
 }
 
 const MB = 1024 * 1024
@@ -277,23 +312,33 @@ var (
 	qGetMemoryUsageMB   = CreateQuery(&dstGetMemoryUsageMB, filterProcessID)
 )
 
-func getMemoryUsageMB() (float64, float64, float64) {
+func getMemoryUsageMB(t *testing.T) (float64, float64, float64) {
 	runtime.ReadMemStats(&mMemoryUsageMB)
-	//errGetMemoryUsageMB = nil //Query(qGetMemoryUsageMB, &dstGetMemoryUsageMB) float64(dstGetMemoryUsageMB[0].WorkingSetPrivate)
 	errGetMemoryUsageMB = Query(qGetMemoryUsageMB, &dstGetMemoryUsageMB)
 	if errGetMemoryUsageMB != nil {
-		fmt.Println("ERROR GetMemoryUsage", errGetMemoryUsageMB)
-		return 0, 0, 0
+		t.Fatalf("ERROR GetMemoryUsage; %s", errGetMemoryUsageMB)
 	}
 	return float64(dstGetMemoryUsageMB[0].WorkingSetPrivate) / MB, float64(mMemoryUsageMB.Alloc) / MB, float64(mMemoryUsageMB.TotalAlloc) / MB
 }
 
-func wbemGetMemoryUsageMB(s *SWbemServices) (float64, float64, float64) {
+func wbemGetMemoryUsageMB(t *testing.T, s *SWbemServices) (float64, float64, float64) {
 	runtime.ReadMemStats(&mMemoryUsageMB)
 	errGetMemoryUsageMB = s.Query(qGetMemoryUsageMB, &dstGetMemoryUsageMB)
 	if errGetMemoryUsageMB != nil {
-		fmt.Println("ERROR GetMemoryUsage", errGetMemoryUsageMB)
-		return 0, 0, 0
+		t.Fatalf("ERROR GetMemoryUsage; %s", errGetMemoryUsageMB)
 	}
 	return float64(dstGetMemoryUsageMB[0].WorkingSetPrivate) / MB, float64(mMemoryUsageMB.Alloc) / MB, float64(mMemoryUsageMB.TotalAlloc) / MB
+}
+
+func wbemConnGetMemoryUsageMB(t *testing.T, s *SWbemServicesConnection) (float64, float64, float64) {
+	runtime.ReadMemStats(&mMemoryUsageMB)
+	errGetMemoryUsageMB = s.Query(qGetMemoryUsageMB, &dstGetMemoryUsageMB)
+	if errGetMemoryUsageMB != nil {
+		t.Fatalf("ERROR GetMemoryUsage; %s", errGetMemoryUsageMB)
+	}
+	return float64(dstGetMemoryUsageMB[0].WorkingSetPrivate) / MB, float64(mMemoryUsageMB.Alloc) / MB, float64(mMemoryUsageMB.TotalAlloc) / MB
+}
+
+func printlnMemUsage(privateMB, allocMB, allocTotalMB float64) {
+	fmt.Printf("Private Memory: %5.1fMB  MemStats.Alloc: %4.1fMB  MemStats.TotalAlloc: %5.1fMB\n", privateMB, allocMB, allocTotalMB)
 }

@@ -12,17 +12,27 @@ import (
 	"github.com/go-ole/go-ole/oleutil"
 )
 
-// SWbemServices is used to access wmi.
-// Ref: https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemservices
+// SWbemServices is used to access wmi on a different machines or namespaces
+// (with different `SWbemServices ConnectServer` args) using the single object.
+//
+// If you need to query the single namespace on a single server prefer using
+// SWbemServicesConnection instead.
 type SWbemServices struct {
 	sync.Mutex
 	Decoder
 
-	sWbemLocator    *ole.IDispatch // This is for calls.
-	sWbemLocatorRaw *ole.IUnknown  // This is for `.Clear()`.
+	sWbemLocator *ole.IDispatch
 }
 
+// NewSWbemServices creates SWbemServices instance.
 func NewSWbemServices() (s *SWbemServices, err error) {
+	//  Be aware of reflections and COM usage.
+	defer func() {
+		if r := recover(); r != nil {
+			err = multierror.Append(err, fmt.Errorf("runtime panic; %v", err))
+		}
+	}()
+
 	comshim.Add(1)
 	defer func() {
 		if err != nil {
@@ -36,6 +46,7 @@ func NewSWbemServices() (s *SWbemServices, err error) {
 	} else if locatorIUnknown == nil {
 		return nil, ErrNilCreateObject
 	}
+	defer locatorIUnknown.Release()
 
 	sWbemLocator, err := locatorIUnknown.QueryInterface(ole.IID_IDispatch)
 	if err != nil {
@@ -43,8 +54,7 @@ func NewSWbemServices() (s *SWbemServices, err error) {
 	}
 
 	res := SWbemServices{
-		sWbemLocatorRaw: locatorIUnknown,
-		sWbemLocator:    sWbemLocator,
+		sWbemLocator: sWbemLocator,
 	}
 	return &res, nil
 }
@@ -68,14 +78,20 @@ func (s *SWbemServices) Close() error {
 	if s.sWbemLocator == nil {
 		return fmt.Errorf("SWbemServices is not Initialized")
 	}
-	s.sWbemLocatorRaw.Release()
+	s.sWbemLocator.Release()
 	s.sWbemLocator = nil
-	s.sWbemLocatorRaw = nil
 	comshim.Done()
 	return nil
 }
 
-// Query runs the WQL query using a SWbemServices instance and appends the values to dst.
+// Query runs the WQL query using a SWbemServicesConnection instance and appends
+// the values to dst.
+//
+// More info about result unmarshalling is available in `Decoder.Unmarshal` doc.
+//
+// By default, the local machine and default namespace are used. These can be
+// changed using connectServerArgs. See Ref. for more info.
+// Ref: https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemlocator-connectserver
 func (s *SWbemServices) Query(query string, dst interface{}, connectServerArgs ...interface{}) (err error) {
 	s.Lock()
 	if s.sWbemLocator == nil {
@@ -84,14 +100,14 @@ func (s *SWbemServices) Query(query string, dst interface{}, connectServerArgs .
 	}
 	s.Unlock()
 
-	serv, err := s.ConnectServer(connectServerArgs...)
+	connection, err := s.ConnectServer(connectServerArgs...)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		if closeErr := serv.Close(); closeErr != nil {
+		if closeErr := connection.Close(); closeErr != nil {
 			err = multierror.Append(err, closeErr)
 		}
 	}()
-	return serv.Query(query, dst)
+	return connection.Query(query, dst)
 }

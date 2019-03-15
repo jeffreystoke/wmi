@@ -11,7 +11,10 @@ import (
 )
 
 var (
+	// ErrInvalidEntityType is returned in case of unsupported destination type
+	// given to the `Query` call.
 	ErrInvalidEntityType = errors.New("wmi: invalid entity type")
+
 	// ErrNilCreateObject is the error returned if CreateObject returns nil even
 	// if the error was nil.
 	ErrNilCreateObject = errors.New("wmi: create object returned nil")
@@ -24,14 +27,11 @@ func QueryNamespace(query string, dst interface{}, namespace string) error {
 
 // Query runs the WQL query and appends the values to dst.
 //
-// dst must have type *[]S or *[]*S, for some struct type S. Fields selected in
-// the query must have the same name in dst. Supported types are all signed and
-// unsigned integers, time.Time, string, bool, or a pointer to one of those.
-// Array types are not supported.
+// More info about result unmarshalling is available in `Decoder.Unmarshal` doc.
 //
 // By default, the local machine and default namespace are used. These can be
-// changed using connectServerArgs. See
-// http://msdn.microsoft.com/en-us/library/aa393720.aspx for details.
+// changed using connectServerArgs. See a reference below for details.
+// https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemlocator-connectserver
 //
 // Query is a wrapper around DefaultClient.Query.
 func Query(query string, dst interface{}, connectServerArgs ...interface{}) error {
@@ -89,7 +89,14 @@ func CreateQueryFrom(src interface{}, from, where string) string {
 
 // A Client is an WMI query client.
 //
-// Its zero value (DefaultClient) is a usable client.
+// Its zero value (`DefaultClient`) is a usable client.
+//
+// Client provides an ability to modify result decoding params by modifying
+// embedded `.Decoder` properties.
+//
+// Important: Using zero-value Client does not speed up your queries comparing
+// to using `wmi.Query` method. Refer to benchmarks in repo README.md for more
+// info about the speed.
 type Client struct {
 	// Embed Decoder for backward-compatibility.
 	Decoder
@@ -105,14 +112,11 @@ var DefaultClient = &Client{}
 
 // Query runs the WQL query and appends the values to dst.
 //
-// dst must have type *[]S or *[]*S, for some struct type S. Fields selected in
-// the query must have the same name in dst. Supported types are all signed and
-// unsigned integers, time.Time, string, bool, or a pointer to one of those.
-// Array types are not supported.
+// More info about result unmarshalling is available in `Decoder.Unmarshal` doc.
 //
 // By default, the local machine and default namespace are used. These can be
-// changed using connectServerArgs. See
-// http://msdn.microsoft.com/en-us/library/aa393720.aspx for details.
+// changed using connectServerArgs. See a reference below for details.
+// https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemlocator-connectserver
 func (c *Client) Query(query string, dst interface{}, connectServerArgs ...interface{}) (err error) {
 	client := c.SWbemServicesClient
 	if client == nil {

@@ -22,10 +22,14 @@ type SWbemServicesConnection struct {
 	sync.Mutex
 	Decoder
 
-	sWbemServices    *ole.IDispatch // This is for calls.
-	SWbemServicesRaw *ole.VARIANT   // This is for `.Clear()`.
+	sWbemServices *ole.IDispatch
 }
 
+// ConnectSWbemServices creates SWbemServices connection to the server defined
+// by @connectServerArgs. Actually it just creates `SWbemLocator` and invokes
+// `SWbemServices ConnectServer` method. Args are passed to the method as it.
+//
+// Ref: https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemlocator-connectserver
 func ConnectSWbemServices(connectServerArgs ...interface{}) (conn *SWbemServicesConnection, err error) {
 	services, err := NewSWbemServices()
 	if err != nil {
@@ -39,7 +43,18 @@ func ConnectSWbemServices(connectServerArgs ...interface{}) (conn *SWbemServices
 	return services.ConnectServer(connectServerArgs...)
 }
 
+// ConnectSWbemServices creates SWbemServices connection to the server defined
+// by @connectServerArgs.
+//
+// Ref: https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemlocator-connectserver
 func (s *SWbemServices) ConnectServer(args ...interface{}) (c *SWbemServicesConnection, err error) {
+	//  Be aware of reflections and COM usage.
+	defer func() {
+		if r := recover(); r != nil {
+			err = multierror.Append(err, fmt.Errorf("runtime panic; %v", err))
+		}
+	}()
+
 	// Notify that we are going to use COM. We will care about at least one
 	// reference for connection.
 	comshim.Add(1)
@@ -58,10 +73,13 @@ func (s *SWbemServices) ConnectServer(args ...interface{}) (c *SWbemServicesConn
 		return nil, errors.New("SWbemServices IDispatch returned nil")
 	}
 
+	// Resulting IDispatch uses the same mem as a variant, and a variant will not clear anything
+	// (ref: https://docs.microsoft.com/en-us/windows/desktop/api/oleauto/nf-oleauto-variantclear)
+	// so we have no need to care about of serviceRaw and moreover call clear on it.
+
 	conn := SWbemServicesConnection{
-		Decoder:          s.Decoder,
-		sWbemServices:    service,
-		SWbemServicesRaw: serviceRaw,
+		Decoder:       s.Decoder,
+		sWbemServices: service,
 	}
 	return &conn, nil
 }
@@ -71,13 +89,8 @@ func (s *SWbemServicesConnection) Close() error {
 	s.Lock()
 	defer s.Unlock()
 	if s.sWbemServices == nil {
-		return nil
+		return nil // Already stopped.
 	}
-	err := s.SWbemServicesRaw.Clear()
-	if err != nil {
-		return err
-	}
-	s.SWbemServicesRaw = nil
 	s.sWbemServices.Release()
 	s.sWbemServices = nil
 	comshim.Done()
@@ -86,6 +99,11 @@ func (s *SWbemServicesConnection) Close() error {
 
 // Query runs the WQL query using a SWbemServicesConnection instance and appends
 // the values to dst.
+//
+// More info about result unmarshalling is available in `Decoder.Unmarshal` doc.
+//
+// Query is performed using `SWbemServices.ExecQuery` method.
+// Ref: https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemservices-execquery
 func (s *SWbemServicesConnection) Query(query string, dst interface{}) error {
 	s.Lock()
 	if s.sWbemServices == nil {
@@ -119,6 +137,13 @@ type queryDst struct {
 }
 
 func (s *SWbemServicesConnection) query(query string, dst *queryDst) (err error) {
+	//  Be aware of reflections and COM usage.
+	defer func() {
+		if r := recover(); r != nil {
+			err = multierror.Append(err, fmt.Errorf("runtime panic; %v", err))
+		}
+	}()
+
 	// result is a SWBemObjectSet
 	resultRaw, err := oleutil.CallMethod(s.sWbemServices, "ExecQuery", query)
 	if err != nil {

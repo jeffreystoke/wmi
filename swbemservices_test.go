@@ -63,50 +63,6 @@ func TestWbemQueryNamespace(t *testing.T) {
 	}
 }
 
-//Run all benchmarks (should run for at least 60s to get a stable number):
-//go test -run=NONE -bench=Version -benchtime=120s
-
-//Individual benchmarks:
-//go test -run=NONE -bench=NewVersion -benchtime=120s
-func BenchmarkNewVersion(b *testing.B) {
-	s, err := ConnectSWbemServices()
-	if err != nil {
-		b.Fatalf("InitializeSWbemServices: %s", err)
-	}
-	var dst []Win32_OperatingSystem
-	q := CreateQuery(&dst, "")
-	for n := 0; n < b.N; n++ {
-		errQuery := s.Query(q, &dst)
-		if errQuery != nil {
-			b.Fatalf("Query%d: %s", n, errQuery)
-		}
-		count := len(dst)
-		if count < 1 {
-			b.Fatalf("Query%d: no results found for Win32_OperatingSystem", n)
-		}
-	}
-	errClose := s.Close()
-	if errClose != nil {
-		b.Fatalf("Close: %s", errClose)
-	}
-}
-
-//go test -run=NONE -bench=OldVersion -benchtime=120s
-func BenchmarkOldVersion(b *testing.B) {
-	var dst []Win32_OperatingSystem
-	q := CreateQuery(&dst, "")
-	for n := 0; n < b.N; n++ {
-		errQuery := Query(q, &dst)
-		if errQuery != nil {
-			b.Fatalf("Query%d: %s", n, errQuery)
-		}
-		count := len(dst)
-		if count < 1 {
-			b.Fatalf("Query%d: no results found for Win32_OperatingSystem", n)
-		}
-	}
-}
-
 type MSFT_NetAdapter struct {
 	Name              string
 	InterfaceIndex    int

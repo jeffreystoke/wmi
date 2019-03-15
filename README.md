@@ -40,3 +40,19 @@ func main() {
 	}
 }
  ```
+
+## Benchmarks
+Using `DefaultClient`, `SWbemServices` or `SWbemServicesConnection` differ in a number
+of setup calls doing to perform each query (from the most to the least).
+
+Estimated overhead is shown below:
+```
+BenchmarkQuery_DefaultClient   5000  33529798 ns/op
+BenchmarkQuery_SWbemServices   5000  32031199 ns/op
+BenchmarkQuery_SWbemConnection 5000  30099403 ns/op
+```
+
+You could reproduce the results on your machine running:
+```bash
+go test -run=NONE -bench=Query -benchtime=120s
+```
