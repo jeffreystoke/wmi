@@ -30,7 +30,7 @@ type NotificationQuery struct {
 
 	sync.Mutex
 	query             string
-	isRunning         bool
+	state             state
 	doneCh            chan struct{}
 	eventCh           interface{}
 	connectServerArgs []interface{}
@@ -50,6 +50,7 @@ func NewNotificationQuery(eventCh interface{}, query string) (*NotificationQuery
 		return nil, errors.New("eventCh has incorrect type; should be `chan T` or `chan *T`")
 	}
 	q := NotificationQuery{
+		state:   stateNotStarted,
 		doneCh:  make(chan struct{}),
 		eventCh: eventCh,
 		query:   query,
@@ -95,11 +96,15 @@ func (q *NotificationQuery) SetConnectServerArgs(args ...interface{}) {
 // "it's either starts and going to give me notifications or fails fast enough".
 func (q *NotificationQuery) StartNotifications() (err error) {
 	q.Lock()
-	if q.isRunning {
+	switch q.state {
+	case stateStarted:
 		q.Unlock()
 		return ErrAlreadyRunning
+	case stateStopped:
+		q.Unlock()
+		return nil
 	}
-	q.isRunning = true
+	q.state = stateStarted
 	q.Unlock()
 
 	//  Be aware of reflections and COM usage.
@@ -147,14 +152,14 @@ func (q *NotificationQuery) StartNotifications() (err error) {
 		}
 
 		// Or try to query new events waiting no longer than queryTimeoutMs.
-		eventIUknown, err := eventSource.CallMethod("NextEvent", q.queryTimeoutMs)
+		eventIUnknown, err := eventSource.CallMethod("NextEvent", q.queryTimeoutMs)
 		if err != nil {
 			if isTimeoutError(err) {
 				continue
 			}
 			return fmt.Errorf("unexpected NextEvent error; %s", err)
 		}
-		event := eventIUknown.ToIDispatch()
+		event := eventIUnknown.ToIDispatch()
 
 		// Unmarshal event.
 		e := reflect.New(eventType)
@@ -176,11 +181,10 @@ func (q *NotificationQuery) StartNotifications() (err error) {
 func (q *NotificationQuery) Stop() {
 	q.Lock()
 	defer q.Unlock()
-	if !q.isRunning {
-		return
+	if q.state == stateStarted {
+		<-q.doneCh
 	}
-	<-q.doneCh
-	q.isRunning = false
+	q.state = stateStopped
 }
 
 func createWMIConnection(connectServerArgs ...interface{}) (wmi *ole.IDispatch, err error) {
@@ -204,6 +208,14 @@ func createWMIConnection(connectServerArgs ...interface{}) (wmi *ole.IDispatch, 
 	}
 	return serviceRaw.ToIDispatch(), nil
 }
+
+type state int
+
+const (
+	stateNotStarted state = iota
+	stateStarted
+	stateStopped
+)
 
 func isTimeoutError(err error) bool {
 	oleErr, ok := err.(*ole.OleError)

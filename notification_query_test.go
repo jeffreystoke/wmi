@@ -94,3 +94,40 @@ func TestNotificationQuery(t *testing.T) {
 		t.Errorf("Got unexpected Year value; got %d expected %d", e.Instance.Year, now.Year())
 	}
 }
+
+func TestNotificationQuery_StartStop(t *testing.T) {
+	type event struct {
+		Created uint64 `wmi:"TIME_CREATED"`
+	}
+
+	resultCh := make(chan event)
+	queryString := `SELECT * FROM __InstanceModificationEvent WHERE TargetInstance ISA 'Win32_LocalTime'`
+	query, err := NewNotificationQuery(resultCh, queryString)
+	if err != nil {
+		t.Fatalf("Failed to create NotificationQuery; %s", err)
+	}
+	query.SetNotificationTimeout(100 * time.Millisecond)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		if err := query.StartNotifications(); err != nil {
+			t.Errorf("Notification query error; %s", err)
+		}
+		wg.Done()
+	}()
+
+	// Do not get the event!
+	// Stop the query and confirm routine is dead.
+	query.Stop()
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Errorf("Failed to stop query in 5x NotificationTimeout's")
+	}
+}
