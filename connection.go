@@ -5,13 +5,19 @@ package wmi
 import (
 	"errors"
 	"fmt"
-	"github.com/hashicorp/go-multierror"
-	"github.com/scjalliance/comshim"
 	"reflect"
 	"sync"
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
+	"github.com/hashicorp/go-multierror"
+	"github.com/scjalliance/comshim"
+)
+
+var (
+	// ErrConnectionClosed is returned for methods called on the closed
+	// SWbemServicesConnection.
+	ErrConnectionClosed = errors.New("SWbemServicesConnection has been closed")
 )
 
 // SWbemServicesConnection is used to access SWbemServices methods of the
@@ -108,11 +114,11 @@ func (s *SWbemServicesConnection) Query(query string, dst interface{}) error {
 	s.Lock()
 	if s.sWbemServices == nil {
 		s.Unlock()
-		return fmt.Errorf("SWbemServicesConnection has been closed")
+		return ErrConnectionClosed
 	}
 	s.Unlock()
 
-	sliceRefl := reflect.ValueOf(dst)
+	sliceRefl := reflect.ValueOf(dst) // TODO: Double argument check?
 	if sliceRefl.Kind() != reflect.Ptr || sliceRefl.IsNil() {
 		return ErrInvalidEntityType
 	}
@@ -128,6 +134,48 @@ func (s *SWbemServicesConnection) Query(query string, dst interface{}) error {
 		dsArgType:   argType,
 		dstElemType: elemType,
 	})
+}
+
+// Get retrieves a single instance of a managed resource (or class definition)
+// based on an object @path. The result is unmarshalled into @dst. @dst should
+// be struct or structure pointer.
+//
+// More info about result unmarshalling is available in `Decoder.Unmarshal` doc.
+//
+// Get method reference:
+// https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemservices-get
+func (s *SWbemServicesConnection) Get(path string, dst interface{}) (err error) {
+	s.Lock()
+	if s.sWbemServices == nil {
+		s.Unlock()
+		return ErrConnectionClosed
+	}
+	s.Unlock()
+
+	//  Be aware of reflections and COM usage.
+	defer func() {
+		if r := recover(); r != nil {
+			err = multierror.Append(err, fmt.Errorf("runtime panic; %v", err))
+		}
+	}()
+
+	dstRef := reflect.ValueOf(dst)
+	if dstRef.Kind() != reflect.Ptr && dstRef.Elem().Kind() != reflect.Struct {
+		return fmt.Errorf("dst should be a pointer to struct")
+	}
+
+	resultRaw, err := oleutil.CallMethod(s.sWbemServices, "Get", path)
+	if err != nil {
+		return err
+	}
+	result := resultRaw.ToIDispatch()
+	defer func() {
+		if clErr := resultRaw.Clear(); clErr != nil {
+			err = multierror.Append(err, clErr)
+		}
+	}()
+
+	return s.Unmarshal(result, dst)
 }
 
 type queryDst struct {
