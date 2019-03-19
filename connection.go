@@ -50,7 +50,7 @@ func ConnectSWbemServices(connectServerArgs ...interface{}) (conn *SWbemServices
 }
 
 // ConnectSWbemServices creates SWbemServices connection to the server defined
-// by @connectServerArgs.
+// by @args.
 //
 // Ref: https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemlocator-connectserver
 func (s *SWbemServices) ConnectServer(args ...interface{}) (c *SWbemServicesConnection, err error) {
@@ -138,7 +138,7 @@ func (s *SWbemServicesConnection) Query(query string, dst interface{}) error {
 
 // Get retrieves a single instance of a managed resource (or class definition)
 // based on an object @path. The result is unmarshalled into @dst. @dst should
-// be struct or structure pointer.
+// be a pointer to the structure type.
 //
 // More info about result unmarshalling is available in `Decoder.Unmarshal` doc.
 //
@@ -239,17 +239,19 @@ func (s *SWbemServicesConnection) query(query string, dst *queryDst) (err error)
 
 		// Closure for defer in the loop.
 		err := func() error {
-			// item is a SWbemObject, but really a Win32_Process
 			item := itemRaw.ToIDispatch()
 			defer item.Release()
 
 			ev := reflect.New(dst.dstElemType)
 			if err = s.Unmarshal(item, ev.Interface()); err != nil {
-				if _, ok := err.(*ErrFieldMismatch); ok {
+				if _, ok := err.(ErrFieldMismatch); ok {
 					// We continue loading entities even in the face of field mismatch errors.
 					// If we encounter any other error, that other error is returned. Otherwise,
 					// an ErrFieldMismatch is returned.
-					errFieldMismatch = multierror.Append(errFieldMismatch, err)
+					//
+					// Note that we are unmarshalling into the slice, so every element of the
+					// result will have the same error thus we can save the only error occurred.
+					errFieldMismatch = err
 				} else {
 					return err
 				}

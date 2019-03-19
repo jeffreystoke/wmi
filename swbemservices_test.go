@@ -7,7 +7,7 @@ import (
 )
 
 func TestWbemQuery(t *testing.T) {
-	s, err := ConnectSWbemServices()
+	s, err := NewSWbemServices()
 	if err != nil {
 		t.Fatalf("InitializeSWbemServices: %s", err)
 	}

@@ -4,12 +4,12 @@ package wmi
 
 import (
 	"fmt"
-	"github.com/hashicorp/go-multierror"
-	"github.com/scjalliance/comshim"
 	"sync"
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
+	"github.com/hashicorp/go-multierror"
+	"github.com/scjalliance/comshim"
 )
 
 // SWbemServices is used to access wmi on a different machines or namespaces

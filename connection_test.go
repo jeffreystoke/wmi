@@ -11,7 +11,7 @@ import (
 func TestSWbemServicesConnection(t *testing.T) {
 	s, err := ConnectSWbemServices()
 	if err != nil {
-		t.Fatalf("InitializeSWbemServices: %s", err)
+		t.Fatalf("ConnectSWbemServices: %s", err)
 	}
 
 	var dst []Win32_OperatingSystem
@@ -57,7 +57,7 @@ func TestSWbemServicesConnection_Get(t *testing.T) {
 		t.Fatalf("Failed to query current u; %s", err)
 	}
 
-	// Try to find current user account and check SID strings.
+	// Try to find current user account by its SID.
 	var currentUserAccount userAccount
 	for _, u := range loggedUsers {
 		var account userAccount
@@ -74,6 +74,7 @@ func TestSWbemServicesConnection_Get(t *testing.T) {
 
 	t.Logf("Expected user session; %+v", currentUserAccount)
 
+	// And now check domain/username to ensure we got the right user.
 	parts := strings.SplitN(osUser.Username, `\`, 2)
 	osUserDomain, osUserName := parts[0], parts[1]
 	if currentUserAccount.Name != osUserName {

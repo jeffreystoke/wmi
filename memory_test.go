@@ -4,7 +4,6 @@ package wmi
 
 import (
 	"fmt"
-	"github.com/scjalliance/comshim"
 	"os"
 	"runtime"
 	"sync"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
+	"github.com/scjalliance/comshim"
 )
 
 const memReps = 50 * 1000

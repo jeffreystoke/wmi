@@ -5,9 +5,10 @@ package wmi
 import (
 	"bytes"
 	"errors"
-	"github.com/hashicorp/go-multierror"
 	"reflect"
 	"strings"
+
+	"github.com/hashicorp/go-multierror"
 )
 
 var (
@@ -95,7 +96,7 @@ func CreateQueryFrom(src interface{}, from, where string) string {
 // to using `wmi.Query` method. Refer to benchmarks in repo README.md for more
 // info about the speed.
 type Client struct {
-	// Embed Decoder for backward-compatibility.
+	// Embedded Decoder for backward-compatibility.
 	Decoder
 
 	// SWbemServiceClient is an optional SWbemServices object that can be
