@@ -5,7 +5,6 @@ package wmi
 import (
 	"errors"
 	"fmt"
-	"github.com/hashicorp/go-multierror"
 	"reflect"
 	"strconv"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
+	"github.com/hashicorp/go-multierror"
 )
 
 // Unmarshaler is the interface implemented by types that can unmarshal COM
@@ -38,7 +38,7 @@ type Decoder struct {
 	// NonePtrZero specifies if nil values for fields which aren't pointers
 	// should be returned as the field types zero value.
 	//
-	// Setting this to true allows stucts without pointer fields to be used
+	// Setting this to true allows structs without pointer fields to be used
 	// without the risk failure should a nil value returned from WMI.
 	NonePtrZero bool
 
@@ -169,10 +169,10 @@ func (d *Decoder) unmarshalField(src *ole.IDispatch, f reflect.Value, fType refl
 	// Fetch property from the COM object.
 	prop, err := oleutil.GetProperty(src, fieldName)
 	if err != nil {
-		if !d.AllowMissingFields {
-			return fmt.Errorf("no result field %q", fieldName)
+		if d.AllowMissingFields {
+			return nil
 		}
-		return nil // TODO: Is it really ok?
+		return fmt.Errorf("no result field %q", fieldName)
 	}
 	defer func() {
 		if clErr := prop.Clear(); clErr != nil {
@@ -186,7 +186,7 @@ func (d *Decoder) unmarshalField(src *ole.IDispatch, f reflect.Value, fType refl
 	// If it's a reference field and we have Dereferencer - resolve it.
 	if options == "ref" {
 		if d.Dereferencer == nil {
-			return errors.New("failed to dereference ref field; no Dereferencer set")
+			return errors.New("failed to dereference ref field; no Decoder.Dereferencer set")
 		}
 		refPath := prop.ToString()
 		prop, err = d.Dereferencer.Dereference(refPath)
