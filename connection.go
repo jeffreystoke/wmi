@@ -83,11 +83,12 @@ func (s *SWbemServices) ConnectServer(args ...interface{}) (c *SWbemServicesConn
 	// (ref: https://docs.microsoft.com/en-us/windows/desktop/api/oleauto/nf-oleauto-variantclear)
 	// so we have no need to care about of serviceRaw and moreover call clear on it.
 
-	conn := SWbemServicesConnection{
+	conn := &SWbemServicesConnection{
 		Decoder:       s.Decoder,
 		sWbemServices: service,
 	}
-	return &conn, nil
+	conn.Decoder.Dereferencer = conn
+	return conn, nil
 }
 
 // Close will clear and release all of the SWbemServicesConnection resources.
@@ -164,7 +165,7 @@ func (s *SWbemServicesConnection) Get(path string, dst interface{}) (err error) 
 		return fmt.Errorf("dst should be a pointer to struct")
 	}
 
-	resultRaw, err := oleutil.CallMethod(s.sWbemServices, "Get", path)
+	resultRaw, err := s.dereference(path)
 	if err != nil {
 		return err
 	}
@@ -176,6 +177,30 @@ func (s *SWbemServicesConnection) Get(path string, dst interface{}) (err error) 
 	}()
 
 	return s.Unmarshal(result, dst)
+}
+
+// Dereference performs `SWbemServices.Get` on the given path, but returns the
+// low level result itself not performing unmarshalling.
+func (s *SWbemServicesConnection) Dereference(referencePath string) (v *ole.VARIANT, err error) {
+	s.Lock()
+	if s.sWbemServices == nil {
+		s.Unlock()
+		return nil, ErrConnectionClosed
+	}
+	s.Unlock()
+
+	//  Be aware of reflections and COM usage.
+	defer func() {
+		if r := recover(); r != nil {
+			err = multierror.Append(err, fmt.Errorf("runtime panic; %v", r))
+		}
+	}()
+
+	return s.dereference(referencePath)
+}
+
+func (s *SWbemServicesConnection) dereference(referencePath string) (v *ole.VARIANT, err error) {
+	return oleutil.CallMethod(s.sWbemServices, "Get", referencePath)
 }
 
 type queryDst struct {

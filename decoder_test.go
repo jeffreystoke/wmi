@@ -316,3 +316,45 @@ func TestDecoder_Unmarshal_EmbeddedStructures(t *testing.T) {
 		t.Errorf("Queried empty OfflineFileNameFolderGUID for Desktop")
 	}
 }
+
+// Win32_LoggedOnUser
+// https://docs.microsoft.com/en-us/windows/desktop/cimwin32prov/win32-loggedonuser
+type loggedUser struct {
+	Session struct {
+		LogonId string
+	} `wmi:"Dependent,ref"`
+	Account struct {
+		SID string
+	} `wmi:"Antecedent,ref"`
+}
+
+func TestDecoder_Unmarshal_References(t *testing.T) {
+	// Fetch current user.
+	u, err := user.Current()
+	if err != nil {
+		t.Fatalf("Failed to query current user")
+	}
+
+	// Extract user profile of the current user.
+	var users []loggedUser
+	if err := Query(`SELECT * FROM Win32_LoggedOnUser`, &users); err != nil {
+		t.Fatalf("Failed to query Win32_LoggedOnUser; %v", err)
+	}
+	if len(users) < 1 {
+		t.Fatalf("No logged users found")
+	}
+
+	var current *loggedUser
+	for i, lu := range users {
+		if lu.Account.SID == u.Uid {
+			current = &users[i]
+		}
+	}
+
+	if current == nil {
+		t.Fatalf("Failed to find current user (SID=%q) session in %+v", u.Uid, users)
+	}
+	if current.Session.LogonId == "" {
+		t.Errorf("Unexpected LogonID of current user; got %q", current.Session.LogonId)
+	}
+}

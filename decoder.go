@@ -5,8 +5,10 @@ package wmi
 import (
 	"errors"
 	"fmt"
+	"github.com/hashicorp/go-multierror"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-ole/go-ole"
@@ -17,6 +19,17 @@ import (
 // object of themselves.
 type Unmarshaler interface {
 	UnmarshalOLE(src *ole.IDispatch) error
+}
+
+// Dereferencer is anything that can fetch WMI objects using its object path.
+// Used to retrieve object from CIM reference strings, e.g. from
+// `Win32_LoggedOnUser`.
+//
+// Ref:
+// 	https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-wmio/58e803a6-25f6-4ba6-abdc-b39e1daa66fc
+//	https://docs.microsoft.com/en-us/windows/desktop/cimwin32prov/win32-loggedonuser
+type Dereferencer interface {
+	Dereference(referencePath string) (*ole.VARIANT, error)
 }
 
 // Decoder handles "decoding" of `ole.IDispatch` objects into the given
@@ -42,6 +55,18 @@ type Decoder struct {
 	// Setting this to true allows custom queries to be used with full
 	// struct definitions instead of having to define multiple structs.
 	AllowMissingFields bool
+
+	// Dereferencer specifies an interface to resolve reference fields.
+	// Dereferencer will be invoked on the fields tagged with ",ref" tag, e.g.
+	//     Field Type `wmi:"FieldName,ref"
+	//
+	// Such fields will be resolved to the string that will be passed to
+	// `Dereference` call. Resulting object will be used to fill the actual
+	// field value.
+	//
+	// Dereferencer is automatically set by all query calls. Setting it to nil
+	// will cause all fields tagged as references to return resolution error.
+	Dereferencer Dereferencer
 }
 
 // ErrFieldMismatch is returned when a field is to be loaded into a different
@@ -95,6 +120,11 @@ var timeType = reflect.TypeOf(time.Time{})
 //    // Will be skipped during unmarshalling.
 //    MyHelperField   int wmi:"-"`
 //
+//    // Will be unmarshalled by CIM reference.
+//    // See `Dereferencer` for more info.
+//	  Field  Type `wmi:"FieldName,ref"
+//	  Field2 Type `wmi:",ref"
+//
 // Unmarshal prefers tag value over the field name, but ignores any name collisions.
 // So for example all the following fields will be resolved to the same value.
 //    Field  int
@@ -118,32 +148,10 @@ func (d *Decoder) Unmarshal(src *ole.IDispatch, dst interface{}) (err error) {
 	for i := 0; i < v.NumField(); i++ {
 		f := v.Field(i)
 		fType := vType.Field(i)
-		fieldName := getFieldName(fType)
-
-		if !f.CanSet() || fieldName == "-" {
-			continue
-		}
-
-		// Closure for defer in the loop.
-		err = func() error {
-			// Fetch property from the COM object.
-			prop, err := oleutil.GetProperty(src, fieldName)
-			if err != nil {
-				if !d.AllowMissingFields {
-					return errors.New("no such result field")
-				}
-				return nil // TODO: Is it really ok?
-			}
-			defer prop.Clear()
-			if prop.VT == ole.VT_NULL {
-				return nil
-			}
-			return d.unmarshalField(f, prop)
-		}()
-		if err != nil {
+		if err = d.unmarshalField(src, f, fType); err != nil {
 			return ErrFieldMismatch{
 				FieldType: fType.Type,
-				FieldName: fieldName,
+				FieldName: fType.Name,
 				Reason:    err.Error(),
 			}
 		}
@@ -152,35 +160,73 @@ func (d *Decoder) Unmarshal(src *ole.IDispatch, dst interface{}) (err error) {
 	return nil
 }
 
-func (d *Decoder) unmarshalField(fieldDst reflect.Value, prop *ole.VARIANT) error {
-	isPtr := fieldDst.Kind() == reflect.Ptr
-	fieldDstOrig := fieldDst
+func (d *Decoder) unmarshalField(src *ole.IDispatch, f reflect.Value, fType reflect.StructField) (err error) {
+	fieldName, options := getFieldName(fType)
+	if !f.CanSet() || fieldName == "-" {
+		return nil
+	}
+
+	// Fetch property from the COM object.
+	prop, err := oleutil.GetProperty(src, fieldName)
+	if err != nil {
+		if !d.AllowMissingFields {
+			return fmt.Errorf("no result field %q", fieldName)
+		}
+		return nil // TODO: Is it really ok?
+	}
+	defer func() {
+		if clErr := prop.Clear(); clErr != nil {
+			err = multierror.Append(err, clErr)
+		}
+	}()
+	if prop.VT == ole.VT_NULL {
+		return nil
+	}
+
+	// If it's a reference field and we have Dereferencer - resolve it.
+	if options == "ref" {
+		if d.Dereferencer == nil {
+			return errors.New("failed to dereference ref field; no Dereferencer set")
+		}
+		refPath := prop.ToString()
+		prop, err = d.Dereferencer.Dereference(refPath)
+		if err != nil {
+			return err
+		}
+	}
+
+	return d.unmarshalValue(f, prop)
+}
+
+func (d *Decoder) unmarshalValue(dst reflect.Value, prop *ole.VARIANT) error {
+	isPtr := dst.Kind() == reflect.Ptr
+	fieldDstOrig := dst
 	if isPtr { // Create empty object for pointer receiver.
-		ptr := reflect.New(fieldDst.Type().Elem())
-		fieldDst.Set(ptr)
-		fieldDst = fieldDst.Elem()
+		ptr := reflect.New(dst.Type().Elem())
+		dst.Set(ptr)
+		dst = dst.Elem()
 	}
 
 	// First of all try to unmarshal it as a simple type.
-	err := unmarshalSimpleValue(fieldDst, prop.Value())
+	err := unmarshalSimpleValue(dst, prop.Value())
 	if err != errSimpleVariantsExceeded {
 		return err // Either nil and value set or unexpected error.
 	}
 
 	// Or we faced not so simple type. Do our best.
-	switch fieldDst.Kind() {
+	switch dst.Kind() {
 	case reflect.Slice:
 		safeArray := prop.ToArray()
 		if safeArray == nil {
 			return fmt.Errorf("can't unmarshal %s into slice", prop.VT)
 		}
-		return unmarshalSlice(fieldDst, safeArray)
+		return unmarshalSlice(dst, safeArray)
 	case reflect.Struct:
 		dispatch := prop.ToIDispatch()
 		if dispatch == nil {
 			return fmt.Errorf("can't unmarshal %s into struct", prop.VT)
 		}
-		fieldPointer := fieldDst.Addr().Interface()
+		fieldPointer := dst.Addr().Interface()
 		return d.Unmarshal(dispatch, fieldPointer)
 	default:
 		// If we got nil value - handle it with magic config fields.
@@ -324,10 +370,16 @@ func unmarshalTime(fieldDst reflect.Value, val string) error {
 	return nil
 }
 
-func getFieldName(fType reflect.StructField) string {
+func getFieldName(fType reflect.StructField) (name, options string) {
 	tag := fType.Tag.Get("wmi")
-	if tag != "" {
-		return tag
+	if idx := strings.Index(tag, ","); idx != -1 {
+		name = tag[:idx]
+		options = tag[idx+1:]
+	} else {
+		name = tag
 	}
-	return fType.Name
+	if name == "" {
+		name = fType.Name
+	}
+	return
 }
