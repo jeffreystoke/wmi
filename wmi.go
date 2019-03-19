@@ -130,5 +130,6 @@ func (c *Client) Query(query string, dst interface{}, connectServerArgs ...inter
 			}
 		}()
 	}
+	client.Decoder = c.Decoder // Patch decoder to use set decoder flags inside `Query`.
 	return client.Query(query, dst, connectServerArgs...)
 }
