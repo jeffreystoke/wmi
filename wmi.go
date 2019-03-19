@@ -35,10 +35,7 @@ func QueryNamespace(query string, dst interface{}, namespace string) error {
 //
 // Query is a wrapper around DefaultClient.Query.
 func Query(query string, dst interface{}, connectServerArgs ...interface{}) error {
-	if DefaultClient.SWbemServicesClient == nil {
-		return DefaultClient.Query(query, dst, connectServerArgs...)
-	}
-	return DefaultClient.SWbemServicesClient.Query(query, dst, connectServerArgs...)
+	return DefaultClient.Query(query, dst, connectServerArgs...)
 }
 
 // CreateQuery returns a WQL query string that queries all columns of @src.
