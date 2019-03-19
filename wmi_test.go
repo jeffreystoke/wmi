@@ -30,9 +30,12 @@ func TestFieldMismatch(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected err field mismatch")
 	}
-	expectedErr := `wmi: cannot load field "Blah" into a "uint32": no such result field`
-	if err.Error() != expectedErr {
-		t.Errorf("Unexpected field mismatch error; got %q, expected %q", err, expectedErr)
+	expectedErr, ok := err.(ErrFieldMismatch)
+	if !ok {
+		t.Fatalf("Unexpected error type; got %T, expected %T", err, expectedErr)
+	}
+	if expectedErr.FieldName != "Blah" {
+		t.Errorf("Unexpected field mismatch error; got error for field %q; expected for %q", expectedErr.FieldName, "Blah")
 	}
 }
 

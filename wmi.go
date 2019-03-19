@@ -72,7 +72,7 @@ func CreateQueryFrom(src interface{}, from, where string) string {
 	b.WriteString("SELECT ")
 	var fields []string
 	for i := 0; i < t.NumField(); i++ {
-		name := getFieldName(t.Field(i))
+		name, _ := getFieldName(t.Field(i))
 		if name == "-" {
 			continue
 		}
