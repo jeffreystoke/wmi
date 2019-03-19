@@ -29,7 +29,7 @@ func NewSWbemServices() (s *SWbemServices, err error) {
 	//  Be aware of reflections and COM usage.
 	defer func() {
 		if r := recover(); r != nil {
-			err = multierror.Append(err, fmt.Errorf("runtime panic; %v", err))
+			err = multierror.Append(err, fmt.Errorf("runtime panic; %v", r))
 		}
 	}()
 

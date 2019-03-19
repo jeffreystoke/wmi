@@ -104,7 +104,7 @@ func (d *Decoder) Unmarshal(src *ole.IDispatch, dst interface{}) (err error) {
 	defer func() {
 		// We use lots of reflection, so always be alert!
 		if r := recover(); r != nil {
-			err = fmt.Errorf("runtime panic: %v", err)
+			err = fmt.Errorf("runtime panic: %v", r)
 		}
 	}()
 

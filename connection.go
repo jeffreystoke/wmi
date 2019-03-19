@@ -57,7 +57,7 @@ func (s *SWbemServices) ConnectServer(args ...interface{}) (c *SWbemServicesConn
 	//  Be aware of reflections and COM usage.
 	defer func() {
 		if r := recover(); r != nil {
-			err = multierror.Append(err, fmt.Errorf("runtime panic; %v", err))
+			err = multierror.Append(err, fmt.Errorf("runtime panic; %v", r))
 		}
 	}()
 
@@ -155,7 +155,7 @@ func (s *SWbemServicesConnection) Get(path string, dst interface{}) (err error) 
 	//  Be aware of reflections and COM usage.
 	defer func() {
 		if r := recover(); r != nil {
-			err = multierror.Append(err, fmt.Errorf("runtime panic; %v", err))
+			err = multierror.Append(err, fmt.Errorf("runtime panic; %v", r))
 		}
 	}()
 
@@ -188,7 +188,7 @@ func (s *SWbemServicesConnection) query(query string, dst *queryDst) (err error)
 	//  Be aware of reflections and COM usage.
 	defer func() {
 		if r := recover(); r != nil {
-			err = multierror.Append(err, fmt.Errorf("runtime panic; %v", err))
+			err = multierror.Append(err, fmt.Errorf("runtime panic; %v", r))
 		}
 	}()
 
