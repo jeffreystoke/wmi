@@ -42,7 +42,7 @@ func NewSWbemServices() (s *SWbemServices, err error) {
 
 	locatorIUnknown, err := oleutil.CreateObject("WbemScripting.SWbemLocator")
 	if err != nil {
-		return nil, fmt.Errorf("CreateObject SWbemLocator erro; %v", err)
+		return nil, fmt.Errorf("CreateObject SWbemLocator error; %v", err)
 	} else if locatorIUnknown == nil {
 		return nil, ErrNilCreateObject
 	}
