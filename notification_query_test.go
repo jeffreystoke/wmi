@@ -131,3 +131,51 @@ func TestNotificationQuery_StartStop(t *testing.T) {
 		t.Errorf("Failed to stop query in 5x NotificationTimeout's")
 	}
 }
+
+func TestNotificationQuery_StopWithNoEvents(t *testing.T) {
+	type event struct {
+		Created uint64 `wmi:"TIME_CREATED"`
+	}
+
+	// Create a query that will never receive an event.
+	resultCh := make(chan event)
+	queryString := `
+SELECT * FROM __InstanceModificationEvent
+WHERE TargetInstance ISA 'Win32_LocalTime' AND TargetInstance.Hour = 25` // Should never happen.
+
+	query, err := NewNotificationQuery(resultCh, queryString)
+	if err != nil {
+		t.Fatalf("Failed to create NotificationQuery; %s", err)
+	}
+	query.SetNotificationTimeout(100 * time.Millisecond)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		if err := query.StartNotifications(); err != nil {
+			t.Errorf("Notification query error; %s", err)
+		}
+		wg.Done()
+	}()
+
+	// We can't get an event, but emulate some tries.
+	select {
+	case e := <-resultCh:
+		t.Errorf("OMFG! Got timer event with Hour == 25; %+v", e)
+	case <-time.After(500 * time.Millisecond):
+		// Ok. As intended.
+	}
+
+	// Stop the query and confirm routine is dead.
+	query.Stop()
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Errorf("Failed to stop query in 5x NotificationTimeout's")
+	}
+}

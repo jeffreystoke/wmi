@@ -75,7 +75,7 @@ func (q *NotificationQuery) SetNotificationTimeout(t time.Duration) {
 		q.queryTimeoutMs = -1
 		return
 	}
-	q.queryTimeoutMs = int64(t / time.Microsecond)
+	q.queryTimeoutMs = int64(t / time.Millisecond)
 }
 
 // SetConnectServerArgs sets `SWbemLocator.ConnectServer` args. Args are
@@ -119,16 +119,21 @@ func (q *NotificationQuery) StartNotifications() (err error) {
 	defer comshim.Done()
 
 	// Connect to WMI service.
-	service, err := createWMIConnection(q.connectServerArgs...)
+	service, err := ConnectSWbemServices(q.connectServerArgs...)
 	if err != nil {
 		return fmt.Errorf("failed to connect WMI service; %s", err)
 	}
-	defer service.Release()
+	defer func() {
+		if clErr := service.Close(); clErr != nil {
+			err = multierror.Append(err, clErr)
+		}
+	}()
+	q.Dereferencer = service
 
 	// Subscribe to the events. ExecNotificationQuery call must have that flags
 	// and no other.
 	sWbemEventSource, err := oleutil.CallMethod(
-		service,
+		service.sWbemServices,
 		"ExecNotificationQuery",
 		q.query,
 		"WQL",
@@ -166,6 +171,7 @@ func (q *NotificationQuery) StartNotifications() (err error) {
 		if err := q.Unmarshal(event, e.Interface()); err != nil {
 			return fmt.Errorf("failed to unmarshal event; %s", err)
 		}
+		_ = eventIUnknown.Clear() // Nah. We can't handle it anyway.
 
 		// Send to the user.
 		sent := trySend(reflectedResChan, reflectedDoneChan, e.Elem())
@@ -187,28 +193,6 @@ func (q *NotificationQuery) Stop() {
 	q.state = stateStopped
 }
 
-func createWMIConnection(connectServerArgs ...interface{}) (wmi *ole.IDispatch, err error) {
-	sWbemLocatorIUnknown, err := oleutil.CreateObject("WbemScripting.SWbemLocator")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create SWbemLocator; %s", err)
-	} else if sWbemLocatorIUnknown == nil {
-		return nil, ErrNilCreateObject
-	}
-	defer sWbemLocatorIUnknown.Release()
-
-	sWbemLocatorIDispatch, err := sWbemLocatorIUnknown.QueryInterface(ole.IID_IDispatch)
-	if err != nil {
-		return nil, fmt.Errorf("SWbemLocator.QueryInterface failed ; %s", err)
-	}
-	defer sWbemLocatorIDispatch.Release()
-
-	serviceRaw, err := oleutil.CallMethod(sWbemLocatorIDispatch, "ConnectServer", connectServerArgs...)
-	if err != nil {
-		return nil, fmt.Errorf("SWbemLocator.ConnectServer failed; %s", err)
-	}
-	return serviceRaw.ToIDispatch(), nil
-}
-
 type state int
 
 const (
@@ -219,7 +203,11 @@ const (
 
 func isTimeoutError(err error) bool {
 	oleErr, ok := err.(*ole.OleError)
-	return ok && oleErr.Code() == wbemErrTimedOut
+	if !ok {
+		return false
+	}
+	exception, ok := oleErr.SubError().(ole.EXCEPINFO)
+	return ok && exception.SCODE() == wbemErrTimedOut
 }
 
 func isChannelTypeOK(eventCh interface{}) bool {
