@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/go-ole/go-ole"
-	"github.com/go-ole/go-ole/oleutil"
 )
 
 var (
@@ -166,40 +165,22 @@ type selfMadeProcess struct {
 }
 
 // Example of `wmi.Unmarshaler` interface implementation.
-func (p *selfMadeProcess) UnmarshalOLE(src *ole.IDispatch) (err error) {
-	getProperty := func(name string) (value interface{}, err error) {
-		prop, err := oleutil.GetProperty(src, name)
-		if err != nil {
-			return nil, err
-		}
-		return prop.Value(), prop.Clear()
+func (p *selfMadeProcess) UnmarshalOLE(d Decoder, src *ole.IDispatch) (err error) {
+	var dto struct {
+		Name      string
+		ProcessId uint32
 	}
-
-	val, err := getProperty("ProcessId")
-	if err != nil {
+	if err := d.Unmarshal(src, &dto); err != nil {
 		return err
 	}
-	pid, ok := val.(int32)
-	if !ok {
-		return fmt.Errorf("incorrect ProcessId type (%T)", val)
-	}
-	p.HexPID = fmt.Sprintf("0x%x", pid)
-
-	val, err = getProperty("Name")
-	if err != nil {
-		return err
-	}
-	name, ok := val.(string)
-	if !ok {
-		return fmt.Errorf("incorrect Name type (%T)", val)
-	}
-	p.CoolProcessName = fmt.Sprintf("-=%s=-", name)
+	p.HexPID = fmt.Sprintf("0x%x", dto.ProcessId)
+	p.CoolProcessName = fmt.Sprintf("-=%s=-", dto.Name)
 	return nil
 }
 
 type dumbUnmarshaller struct{}
 
-func (dumbUnmarshaller) UnmarshalOLE(src *ole.IDispatch) error {
+func (dumbUnmarshaller) UnmarshalOLE(d Decoder, src *ole.IDispatch) error {
 	return errors.New("always fail")
 }
 

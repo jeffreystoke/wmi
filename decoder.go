@@ -17,8 +17,10 @@ import (
 
 // Unmarshaler is the interface implemented by types that can unmarshal COM
 // object of themselves.
+//
+// N.B. Unmarshaler currently can't be implemented to non structure types!
 type Unmarshaler interface {
-	UnmarshalOLE(src *ole.IDispatch) error
+	UnmarshalOLE(d Decoder, src *ole.IDispatch) error
 }
 
 // Dereferencer is anything that can fetch WMI objects using its object path.
@@ -130,7 +132,7 @@ var timeType = reflect.TypeOf(time.Time{})
 //    Field  int
 //    Field1 int `wmi:"Field"`
 //    Field2 int `wmi:"Field"`
-func (d *Decoder) Unmarshal(src *ole.IDispatch, dst interface{}) (err error) {
+func (d Decoder) Unmarshal(src *ole.IDispatch, dst interface{}) (err error) {
 	defer func() {
 		// We use lots of reflection, so always be alert!
 		if r := recover(); r != nil {
@@ -140,7 +142,7 @@ func (d *Decoder) Unmarshal(src *ole.IDispatch, dst interface{}) (err error) {
 
 	// Checks whether the type can handle unmarshalling of himself.
 	if u, ok := dst.(Unmarshaler); ok {
-		return u.UnmarshalOLE(src)
+		return u.UnmarshalOLE(d, src)
 	}
 
 	v := reflect.ValueOf(dst).Elem()
@@ -160,7 +162,7 @@ func (d *Decoder) Unmarshal(src *ole.IDispatch, dst interface{}) (err error) {
 	return nil
 }
 
-func (d *Decoder) unmarshalField(src *ole.IDispatch, f reflect.Value, fType reflect.StructField) (err error) {
+func (d Decoder) unmarshalField(src *ole.IDispatch, f reflect.Value, fType reflect.StructField) (err error) {
 	fieldName, options := getFieldName(fType)
 	if !f.CanSet() || fieldName == "-" {
 		return nil
@@ -198,7 +200,7 @@ func (d *Decoder) unmarshalField(src *ole.IDispatch, f reflect.Value, fType refl
 	return d.unmarshalValue(f, prop)
 }
 
-func (d *Decoder) unmarshalValue(dst reflect.Value, prop *ole.VARIANT) error {
+func (d Decoder) unmarshalValue(dst reflect.Value, prop *ole.VARIANT) error {
 	isPtr := dst.Kind() == reflect.Ptr
 	fieldDstOrig := dst
 	if isPtr { // Create empty object for pointer receiver.
