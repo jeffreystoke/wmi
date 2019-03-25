@@ -40,6 +40,8 @@ func main() {
 	}
 }
  ```
+ 
+ A more sophisticated examples are located at in [`examples`](./examples) folder.
 
 ## Benchmarks
 Using `DefaultClient`, `SWbemServices` or `SWbemServicesConnection` differ in a number
