@@ -254,6 +254,7 @@ var (
 // tries to fit it inside a given structure field with some possible
 // conversions (e.g. possible integer conversions, string to int parsing
 // and others).
+// This function handles all oleutil.VARIANT types exclude VT_UNKNOWN and VT_DISPATCH.
 func unmarshalSimpleValue(dst reflect.Value, value interface{}) error {
 	switch val := value.(type) {
 	case int8, int16, int32, int64, int:
@@ -289,6 +290,20 @@ func unmarshalSimpleValue(dst reflect.Value, value interface{}) error {
 			dst.SetFloat(float64(val))
 		default:
 			return errors.New("not a float32")
+		}
+	case time.Time:
+		switch dst.Type() {
+		case timeType:
+			dst.Set(reflect.ValueOf(val))
+		default:
+			return errors.New("not a time")
+		}
+	case uintptr:
+		switch dst.Kind() {
+		case reflect.Uintptr:
+			dst.Set(reflect.ValueOf(val))
+		default:
+			return errors.New("not an uintptr")
 		}
 	case string:
 		return smartUnmarshalString(dst, val)
