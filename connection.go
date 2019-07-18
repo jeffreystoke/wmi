@@ -110,6 +110,7 @@ func (s *SWbemServicesConnection) Close() error {
 // More info about result unmarshalling is available in `Decoder.Unmarshal` doc.
 //
 // Query is performed using `SWbemServices.ExecQuery` method.
+//
 // Ref: https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemservices-execquery
 func (s *SWbemServicesConnection) Query(query string, dst interface{}) error {
 	s.Lock()

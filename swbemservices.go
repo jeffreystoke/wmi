@@ -91,6 +91,7 @@ func (s *SWbemServices) Close() error {
 //
 // By default, the local machine and default namespace are used. These can be
 // changed using connectServerArgs. See Ref. for more info.
+//
 // Ref: https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemlocator-connectserver
 func (s *SWbemServices) Query(query string, dst interface{}, connectServerArgs ...interface{}) (err error) {
 	s.Lock()

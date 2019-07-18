@@ -91,14 +91,15 @@ var timeType = reflect.TypeOf(time.Time{})
 // Unmarshal loads `ole.IDispatch` into a struct pointer.
 // N.B. Unmarshal supports only limited subset of structure field
 // types:
-// - all signed and unsigned integers
-// - time.Time
-// - string
-// - bool
-// - float32
-// - a pointer to one of types above
-// - a slice of one of thus types
-// - structure types.
+//   - all signed and unsigned integers
+//   - uintptr
+//   - time.Time
+//   - string
+//   - bool
+//   - float32
+//   - a pointer to one of types above
+//   - a slice of one of thus types
+//   - structure types.
 //
 // To unmarshal more complex struct consider implementing `wmi.Unmarshaler`.
 // For such types Unmarshal just calls `.UnmarshalOLE` on the @src object .
@@ -116,22 +117,22 @@ var timeType = reflect.TypeOf(time.Time{})
 //
 // Unmarshal allows to specify special COM-object property name or skip a field
 // using structure field tags, e.g.
-//    // Will be filled from property `Frequency_Object`
-//    FrequencyObject int wmi:"Frequency_Object"`
+//   // Will be filled from property `Frequency_Object`
+//   FrequencyObject int wmi:"Frequency_Object"`
 //
-//    // Will be skipped during unmarshalling.
-//    MyHelperField   int wmi:"-"`
+//   // Will be skipped during unmarshalling.
+//   MyHelperField   int wmi:"-"`
 //
-//    // Will be unmarshalled by CIM reference.
-//    // See `Dereferencer` for more info.
-//	  Field  Type `wmi:"FieldName,ref"
-//	  Field2 Type `wmi:",ref"
+//   // Will be unmarshalled by CIM reference.
+//   // See `Dereferencer` for more info.
+//	 Field  Type `wmi:"FieldName,ref"
+//	 Field2 Type `wmi:",ref"
 //
 // Unmarshal prefers tag value over the field name, but ignores any name collisions.
 // So for example all the following fields will be resolved to the same value.
-//    Field  int
-//    Field1 int `wmi:"Field"`
-//    Field2 int `wmi:"Field"`
+//   Field  int
+//   Field1 int `wmi:"Field"`
+//   Field2 int `wmi:"Field"`
 func (d Decoder) Unmarshal(src *ole.IDispatch, dst interface{}) (err error) {
 	defer func() {
 		// We use lots of reflection, so always be alert!
@@ -254,7 +255,9 @@ var (
 // tries to fit it inside a given structure field with some possible
 // conversions (e.g. possible integer conversions, string to int parsing
 // and others).
-// This function handles all oleutil.VARIANT types exclude VT_UNKNOWN and VT_DISPATCH.
+//
+// This function handles all oleutil.VARIANT types except VT_UNKNOWN and
+// VT_DISPATCH.
 func unmarshalSimpleValue(dst reflect.Value, value interface{}) error {
 	switch val := value.(type) {
 	case int8, int16, int32, int64, int:

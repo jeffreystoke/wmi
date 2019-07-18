@@ -6,6 +6,24 @@ Package wmi provides a WQL interface to Windows WMI.
 
 Note: It interfaces with WMI on the local machine, therefore it only runs on Windows.
 
+## Fork Features
+**Fork is fully compatibly with the original repo.** If not - please open an issue.
+
+New features introduced in fork:
+- Go 1.11 modules support :)
+- Improved decoder:
+    + support all basic types: all integer types, `float32`, 
+    `string`, `bool`, `uintptr` and `time.Time`
+    + support slices and pointers to all basic types
+    + support decoding of structure fields (see [events example](./examples/events/main.go))
+    + support structure tags
+    + support JSON-like interface for custom decoding
+    + suitable for decoding properties of any go-ole IDispatch object
+- Ability to perform multiple queries in a single connection
+- `SWbemServices.Get` + auto dereference of REF fields
+- `SWbemServices.ExecNotificationQuery` support
+- More other improvements described in [releases page](https://github.com/bi-zone/wmi/releases)
+
 ## Example
  Print names of the currently running processes
  ```golang
@@ -18,25 +36,23 @@ import (
 	"github.com/bi-zone/wmi"
 )
 
-// When we use `wmi.CreateQuery` the name of the struct should match querying
-// WMI class name.
-type Win32_Process struct {
+type win32Process struct {
 	PID       uint32 `wmi:"ProcessId"`
 	Name      string
 	UserField int `wmi:"-"`
 }
 
 func main() {
-	var dst []Win32_Process
+	var dst []win32Process
 
-	q := wmi.CreateQuery(&dst, "")
+	q := wmi.CreateQueryFrom(&dst, "Win32_Process", "")
 	fmt.Println(q)
 
 	if err := wmi.Query(q, &dst); err != nil {
 		log.Fatal(err)
 	}
 	for _, v := range dst {
-		fmt.Println(v.PID, v.Name)
+		fmt.Printf("%6d\t%s\n", v.PID, v.Name)
 	}
 }
  ```
@@ -58,3 +74,14 @@ You could reproduce the results on your machine running:
 ```bash
 go test -run=NONE -bench=Query -benchtime=120s
 ```
+
+## Versioning
+
+Project uses [semantic versioning](http://semver.org) for version numbers, which
+is similar to the version contract of the Go language. Which means that the major
+version will always maintain backwards compatibility with minor versions. Minor 
+versions will only add new additions and changes. Fixes will always be in patch. 
+
+This contract should allow you to upgrade to new minor and patch versions without
+breakage or modifications to your existing code. Leave a ticket, if there is breakage,
+so that it could be fixed.
