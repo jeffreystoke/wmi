@@ -2,9 +2,13 @@
 [![GoDoc](https://godoc.org/github.com/bi-zone/wmi?status.svg)](https://godoc.org/github.com/bi-zone/wmi/)
 [![Go Report Card](https://goreportcard.com/badge/github.com/bi-zone/wmi)](https://goreportcard.com/report/github.com/bi-zone/wmi)
 
-Package wmi provides a WQL interface to Windows WMI.
+Package wmi provides a WMI Query Language (WQL) interface for
+Windows Management Instrumentation (WMI) on Windows.
 
-Note: It interfaces with WMI on the local machine, therefore it only runs on Windows.
+This package uses [COM API for WMI](https://docs.microsoft.com/en-us/windows/win32/wmisdk/com-api-for-wmi)
+therefore it's only usable on the Windows machines.
+
+Package reference is available at https://godoc.org/github.com/bi-zone/wmi
 
 ## Fork Features
 **Fork is fully compatibly with the original repo.** If not - please open an issue.
@@ -18,7 +22,8 @@ New features introduced in fork:
     + support decoding of structure fields (see [events example](./examples/events/main.go))
     + support structure tags
     + support JSON-like interface for custom decoding
-    + suitable for decoding properties of any go-ole IDispatch object
+    + suitable for decoding properties of any [go-ole](https://github.com/go-ole/go-ole) 
+    `IDispatch` object
 - Ability to perform multiple queries in a single connection
 - `SWbemServices.Get` + auto dereference of REF fields
 - `SWbemServices.ExecNotificationQuery` support

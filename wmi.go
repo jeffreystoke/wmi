@@ -32,7 +32,8 @@ func QueryNamespace(query string, dst interface{}, namespace string) error {
 //
 // By default, the local machine and default namespace are used. These can be
 // changed using connectServerArgs. See a reference below for details.
-// https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemlocator-connectserver
+//
+//   https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemlocator-connectserver
 //
 // Query is a wrapper around DefaultClient.Query.
 func Query(query string, dst interface{}, connectServerArgs ...interface{}) error {
@@ -41,10 +42,18 @@ func Query(query string, dst interface{}, connectServerArgs ...interface{}) erro
 
 // CreateQuery returns a WQL query string that queries all columns of @src.
 //
-// @src 	could be T, *T, []T, or *[]T;
-// @where 	is an optional string that is appended to the query, to be used with
-// 			WHERE clauses. In such a case, the "WHERE" string should appear at
-// 			the beginning.
+// @src could be T, *T, []T, or *[]T;
+//
+// @where is an optional string that is appended to the query, to be used with
+// WHERE clauses. In such a case, the "WHERE" string should appear at
+// the beginning.
+//
+//   type Win32_Product struct {
+//   	Name            string
+//   	InstallLocation string
+//   }
+//   var dst []Win32_Product
+//   query := wmi.CreateQuery(&dst, "WHERE InstallLocation != null")
 func CreateQuery(src interface{}, where string) string {
 	s := reflect.Indirect(reflect.ValueOf(src))
 	t := s.Type()
@@ -56,6 +65,7 @@ func CreateQuery(src interface{}, where string) string {
 
 // CreateQuery returns a WQL query string that queries all columns of @src from
 // class @from with condition @where (optional).
+//
 // N.B. The call is the same as `CreateQuery` but uses @from instead of structure
 // name as a class name.
 func CreateQueryFrom(src interface{}, from, where string) string {
@@ -114,7 +124,8 @@ var DefaultClient = &Client{}
 //
 // By default, the local machine and default namespace are used. These can be
 // changed using connectServerArgs. See a reference below for details.
-// https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemlocator-connectserver
+//
+//   https://docs.microsoft.com/en-us/windows/desktop/wmisdk/swbemlocator-connectserver
 func (c *Client) Query(query string, dst interface{}, connectServerArgs ...interface{}) (err error) {
 	client := c.SWbemServicesClient
 	if client == nil {
