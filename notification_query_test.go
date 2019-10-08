@@ -21,8 +21,8 @@ func TestNewNotificationQuery(t *testing.T) {
 		{&T{}, true},
 		{make([]T, 0), true},
 		{make([]*T, 0), true},
-		{make(map[interface{}]T, 0), true},
-		{make(map[interface{}]*T, 0), true},
+		{make(map[interface{}]T), true},
+		{make(map[interface{}]*T), true},
 	}
 	for _, test := range cases {
 		_, err := NewNotificationQuery(test.ch, "any")
@@ -68,14 +68,7 @@ func TestNotificationQuery(t *testing.T) {
 
 	// Stop the query and confirm routine is dead.
 	query.Stop()
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(500 * time.Millisecond):
+	if stopped := wgWaitTimeout(&wg, 500*time.Millisecond); !stopped {
 		t.Errorf("Failed to stop query in 5x NotificationTimeout's")
 	}
 
@@ -122,14 +115,7 @@ func TestNotificationQuery_StartStop(t *testing.T) {
 	// Do not get the event!
 	// Stop the query and confirm routine is dead.
 	query.Stop()
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(500 * time.Millisecond):
+	if stopped := wgWaitTimeout(&wg, 500*time.Millisecond); !stopped {
 		t.Errorf("Failed to stop query in 5x NotificationTimeout's")
 	}
 }
@@ -170,6 +156,60 @@ WHERE TargetInstance ISA 'Win32_LocalTime' AND TargetInstance.Hour = 25` // Shou
 
 	// Stop the query and confirm routine is dead.
 	query.Stop()
+	if stopped := wgWaitTimeout(&wg, 500*time.Millisecond); !stopped {
+		t.Errorf("Failed to stop query in 5x NotificationTimeout's")
+	}
+}
+
+func TestNotificationQuery_StopWithError(t *testing.T) {
+	// A struct with incorrect fields that can't be unmarshaled.
+	type event struct {
+		StrangeField uint64 `wmi:"me_should_not_be_in_event"`
+	}
+
+	// Create a query that will receive an event in a short time.
+	resultCh := make(chan event)
+	queryString := `
+SELECT * FROM __InstanceModificationEvent
+WHERE TargetInstance ISA 'Win32_LocalTime'`
+
+	query, err := NewNotificationQuery(resultCh, queryString)
+	if err != nil {
+		t.Fatalf("Failed to create NotificationQuery; %s", err)
+	}
+	query.SetNotificationTimeout(20 * time.Millisecond)
+	const deadline = 1500 * time.Millisecond
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		if err := query.StartNotifications(); err == nil { // Here!
+			t.Error("Failed to report an error from StartNotifications call")
+		}
+		wg.Done()
+	}()
+
+	// Wait some time to get the error from StartNotifications about inability to
+	// parse the received object.
+	if stopped := wgWaitTimeout(&wg, deadline); !stopped {
+		t.Errorf("Failed to receive an event in %s", deadline)
+	}
+
+	// Stop the query and confirm routine is dead.
+	var stopWG sync.WaitGroup
+	stopWG.Add(1)
+	go func() {
+		query.Stop()
+		stopWG.Done()
+	}()
+	if stopped := wgWaitTimeout(&stopWG, deadline); !stopped {
+		t.Errorf("Failed to stop query in %s", deadline)
+	}
+}
+
+// Waits for wg.Wait() no more than timeout. Returns true if wg.Wait returned
+// before timeout.
+func wgWaitTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -177,7 +217,8 @@ WHERE TargetInstance ISA 'Win32_LocalTime' AND TargetInstance.Hour = 25` // Shou
 	}()
 	select {
 	case <-done:
-	case <-time.After(500 * time.Millisecond):
-		t.Errorf("Failed to stop query in 5x NotificationTimeout's")
+		return true
+	case <-time.After(timeout):
+		return false
 	}
 }

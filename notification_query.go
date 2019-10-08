@@ -53,7 +53,6 @@ func NewNotificationQuery(eventCh interface{}, query string) (*NotificationQuery
 	}
 	q := NotificationQuery{
 		state:   stateNotStarted,
-		doneCh:  make(chan struct{}),
 		eventCh: eventCh,
 		query:   query,
 	}
@@ -106,8 +105,15 @@ func (q *NotificationQuery) StartNotifications() (err error) {
 		q.Unlock()
 		return nil
 	}
+	q.doneCh = make(chan struct{})
 	q.state = stateStarted
 	q.Unlock()
+
+	// Mark as stopped on any return.
+	defer func() {
+		q.state = stateStopped
+		close(q.doneCh)
+	}()
 
 	//  Be aware of reflections and COM usage.
 	defer func() {
@@ -150,6 +156,7 @@ func (q *NotificationQuery) StartNotifications() (err error) {
 	reflectedDoneChan := reflect.ValueOf(q.doneCh)
 	reflectedResChan := reflect.ValueOf(q.eventCh)
 	eventType := reflectedResChan.Type().Elem()
+
 	for {
 		// If it is a time to stop somebody will listen on doneCh.
 		select {
