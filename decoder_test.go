@@ -49,10 +49,8 @@ func TestDecoder_Unmarshal(t *testing.T) {
 	// Time pointer:
 	if system.CreationDate == nil {
 		t.Errorf("Failed to fetch Win32_Process.CreationDate")
-	} else {
-		if !(system.CreationDate.After(someOldDate) && system.CreationDate.Before(testStart)) {
-			t.Errorf("Unexoected System process creation date; %s", system.CreationDate)
-		}
+	} else if !(system.CreationDate.After(someOldDate) && system.CreationDate.Before(testStart)) {
+		t.Errorf("Unexoected System process creation date; %s", system.CreationDate)
 	}
 	// uint64:
 	if system.KernelModeTime == 0 {
@@ -242,7 +240,7 @@ func TestDecoder_Unmarshal_Slices(t *testing.T) {
 	}
 	if len(bios.BIOSVersion) < 1 {
 		t.Errorf("Empty BIOS versions list")
-	} else if len(bios.BIOSVersion[0]) < 0 {
+	} else if len(bios.BIOSVersion[0]) < 1 {
 		t.Errorf("Empty string in BIOS version liss; %v", bios.Version)
 	}
 	if len(bios.BiosCharacteristics) < 1 {
@@ -319,7 +317,9 @@ func TestDecoder_Unmarshal_References(t *testing.T) {
 	// Extract user profile of the current user.
 	var users []loggedUser
 	if err := Query(`SELECT * FROM Win32_LoggedOnUser`, &users); err != nil {
-		t.Fatalf("Failed to query Win32_LoggedOnUser; %v", err)
+		// Sometimes we can't fetch full info about all users but for the current test it's
+		// pretty ok.
+		t.Logf("Got errors querying Win32_LoggedOnUser; %v", err)
 	}
 	if len(users) < 1 {
 		t.Fatalf("No logged users found")
