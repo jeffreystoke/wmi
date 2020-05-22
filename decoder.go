@@ -169,6 +169,12 @@ func (d Decoder) unmarshalField(src *ole.IDispatch, f reflect.Value, fType refle
 		return nil
 	}
 
+	clearVariant := func(p *ole.VARIANT) {
+		if clErr := p.Clear(); clErr != nil {
+			err = multierror.Append(err, clErr)
+		}
+	}
+
 	// Fetch property from the COM object.
 	prop, err := oleutil.GetProperty(src, fieldName)
 	if err != nil {
@@ -177,11 +183,8 @@ func (d Decoder) unmarshalField(src *ole.IDispatch, f reflect.Value, fType refle
 		}
 		return fmt.Errorf("no result field %q", fieldName)
 	}
-	defer func() {
-		if clErr := prop.Clear(); clErr != nil {
-			err = multierror.Append(err, clErr)
-		}
-	}()
+	defer clearVariant(prop)
+
 	if prop.VT == ole.VT_NULL {
 		return nil
 	}
@@ -196,6 +199,7 @@ func (d Decoder) unmarshalField(src *ole.IDispatch, f reflect.Value, fType refle
 		if err != nil {
 			return err
 		}
+		defer clearVariant(prop)
 	}
 
 	return d.unmarshalValue(f, prop)

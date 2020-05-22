@@ -145,6 +145,53 @@ func TestMemoryWMIConcurrent(t *testing.T) {
 	fmt.Printf("Final Time: %4ds\n", time.Now().Sub(start)/time.Second)
 }
 
+// Run using: `TEST_MEM=1 go test -run TestDereferenceMemory -timeout 60m`
+func TestDereferenceMemory(t *testing.T) {
+	if os.Getenv("TEST_MEM") == "" {
+		t.Skip("Skipping TestDereferenceMemory; $TEST_MEM is not set")
+	}
+	s, err := ConnectSWbemServices()
+	if err != nil {
+		t.Fatalf("ConnectSWbemServices: %s", err)
+	}
+
+	start := time.Now()
+	fmt.Printf("Benchmark Iterations: %d (Memory should stabilize around 7MB after ~3000)\n", memReps)
+
+	type netAdapter struct {
+		Adapter struct {
+			MACAddress string
+		} `wmi:"Element,ref"`
+		Settings struct {
+			IPEnabled   bool
+			DHCPEnabled bool
+		} `wmi:"Setting,ref"`
+	}
+	query := CreateQueryFrom(netAdapter{}, "Win32_NetworkAdapterSetting ", "")
+
+	var privateMB, allocMB, allocTotalMB float64
+	for i := 0; i < memReps; i++ {
+		var dumbRes []netAdapter
+		if err := s.Query(query, &dumbRes); err != nil {
+			t.Fatalf("Failed to query Win32_NetworkAdapterSetting; %s", err)
+		}
+
+		if i%100 == 0 {
+			privateMB, allocMB, allocTotalMB = wbemConnGetMemoryUsageMB(t, s)
+			fmt.Printf("Time: %4ds  Count: %5d  ", time.Now().Sub(start)/time.Second, i)
+			printlnMemUsage(privateMB, allocMB, allocTotalMB)
+		}
+	}
+
+	errClose := s.Close()
+	if errClose != nil {
+		t.Fatalf("Close: %s", err)
+	}
+
+	fmt.Printf("Final Time: %4ds ", time.Now().Sub(start)/time.Second)
+	printlnMemUsage(privateMB, allocMB, allocTotalMB)
+}
+
 var refcount1 int32
 var refcount2 int32
 
