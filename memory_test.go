@@ -150,13 +150,6 @@ func TestDereferenceMemory(t *testing.T) {
 	if os.Getenv("TEST_MEM") == "" {
 		t.Skip("Skipping TestDereferenceMemory; $TEST_MEM is not set")
 	}
-	s, err := ConnectSWbemServices()
-	if err != nil {
-		t.Fatalf("ConnectSWbemServices: %s", err)
-	}
-
-	start := time.Now()
-	fmt.Printf("Benchmark Iterations: %d (Memory should stabilize around 7MB after ~3000)\n", memReps)
 
 	type netAdapter struct {
 		Adapter struct {
@@ -167,13 +160,44 @@ func TestDereferenceMemory(t *testing.T) {
 			DHCPEnabled bool
 		} `wmi:"Setting,ref"`
 	}
-	query := CreateQueryFrom(netAdapter{}, "Win32_NetworkAdapterSetting ", "")
+	var dumbRes []netAdapter
+	testQueryMem(t, &dumbRes,
+		CreateQueryFrom(netAdapter{}, "Win32_NetworkAdapterSetting ", ""))
+}
+
+// Run using: `TEST_MEM=1 go test -run TestMemory_OLEArrays -timeout 60m`
+func TestMemory_OLEArrays(t *testing.T) {
+	if os.Getenv("TEST_MEM") == "" {
+		t.Skip("Skipping TestMemory_OLEArrays; $TEST_MEM is not set")
+	}
+
+	// Actually we could use any class and use in system fields, but Win32_BIOS
+	// already has arrays inside, so it's a free COMBO!
+	type miniBIOS struct {
+		Derivation_         []string // System-property. Available for any class.
+		BIOSVersion         []string
+		BiosCharacteristics []uint16
+	}
+	var dumbRes []miniBIOS
+	testQueryMem(t, &dumbRes,
+		// Write a query manually cos we shouldn't specify a system field in WQL string.
+		"SELECT BIOSVersion, BiosCharacteristics FROM Win32_BIOS")
+}
+
+// testQueryMem tests memory usage performing repeating WMI queries for a long time.
+func testQueryMem(t *testing.T, dst interface{}, query string) {
+	s, err := ConnectSWbemServices()
+	if err != nil {
+		t.Fatalf("ConnectSWbemServices: %s", err)
+	}
+
+	start := time.Now()
+	fmt.Printf("Benchmark Iterations: %d (Memory should stabilize around 7MB after ~3000)\n", memReps)
 
 	var privateMB, allocMB, allocTotalMB float64
 	for i := 0; i < memReps; i++ {
-		var dumbRes []netAdapter
-		if err := s.Query(query, &dumbRes); err != nil {
-			t.Fatalf("Failed to query Win32_NetworkAdapterSetting; %s", err)
+		if err := s.Query(query, dst); err != nil {
+			t.Fatalf("Failed to perform query %q; %s", query, err)
 		}
 
 		if i%100 == 0 {
@@ -183,9 +207,8 @@ func TestDereferenceMemory(t *testing.T) {
 		}
 	}
 
-	errClose := s.Close()
-	if errClose != nil {
-		t.Fatalf("Close: %s", err)
+	if errClose := s.Close(); errClose != nil {
+		t.Fatalf("Close: %s", errClose)
 	}
 
 	fmt.Printf("Final Time: %4ds ", time.Now().Sub(start)/time.Second)
