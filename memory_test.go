@@ -17,10 +17,10 @@ import (
 
 const memReps = 50 * 1000
 
-// Run using: `TEST_MEM=1 go test -run TestWbemMemory -timeout 60m`
-func TestWbemMemory(t *testing.T) {
+// Run using: `TEST_MEM=1 go test -run TestMemory_Services -timeout 60m`
+func TestMemory_Services(t *testing.T) {
 	if os.Getenv("TEST_MEM") == "" {
-		t.Skip("Skipping TestWbemMemory; $TEST_MEM is not set")
+		t.Skip("Skipping TestMemory_Services; $TEST_MEM is not set")
 	}
 	s, err := NewSWbemServices()
 	if err != nil {
@@ -28,7 +28,7 @@ func TestWbemMemory(t *testing.T) {
 	}
 
 	start := time.Now()
-	fmt.Printf("Benchmark Iterations: %d (Memory should stabilize around 7MB after ~3000)\n", memReps)
+	fmt.Printf("Benchmark Iterations: %d (Private Memory should stabilize around 7MB after ~3000)\n", memReps)
 
 	var privateMB, allocMB, allocTotalMB float64
 	for i := 0; i < memReps; i++ {
@@ -48,10 +48,10 @@ func TestWbemMemory(t *testing.T) {
 	printlnMemUsage(privateMB, allocMB, allocTotalMB)
 }
 
-// Run using: `TEST_MEM=1 go test -run TestWbemConnectionMemory -timeout 60m`
-func TestWbemConnectionMemory(t *testing.T) {
+// Run using: `TEST_MEM=1 go test -run TestMemory_WbemConnection -timeout 60m`
+func TestMemory_WbemConnection(t *testing.T) {
 	if os.Getenv("TEST_MEM") == "" {
-		t.Skip("Skipping TestWbemMemory; $TEST_MEM is not set")
+		t.Skip("Skipping TestMemory_WbemConnection; $TEST_MEM is not set")
 	}
 	s, err := ConnectSWbemServices()
 	if err != nil {
@@ -59,7 +59,7 @@ func TestWbemConnectionMemory(t *testing.T) {
 	}
 
 	start := time.Now()
-	fmt.Printf("Benchmark Iterations: %d (Memory should stabilize around 7MB after ~3000)\n", memReps)
+	fmt.Printf("Benchmark Iterations: %d (Private Memory should stabilize around 7MB after ~3000)\n", memReps)
 
 	var privateMB, allocMB, allocTotalMB float64
 	for i := 0; i < memReps; i++ {
@@ -79,14 +79,14 @@ func TestWbemConnectionMemory(t *testing.T) {
 	printlnMemUsage(privateMB, allocMB, allocTotalMB)
 }
 
-// Run using: `TEST_MEM=1 go test -run TestMemoryWMISimple -timeout 60m`
-func TestMemoryWMISimple(t *testing.T) {
+// Run using: `TEST_MEM=1 go test -run TestMemory_WMISimple -timeout 60m`
+func TestMemory_WMISimple(t *testing.T) {
 	if os.Getenv("TEST_MEM") == "" {
-		t.Skip("Skipping TestMemoryWMISimple; $TEST_MEM is not set")
+		t.Skip("Skipping TestMemory_WMISimple; $TEST_MEM is not set")
 	}
 
 	start := time.Now()
-	fmt.Printf("Benchmark Iterations: %d (Memory should stabilize around 7MB after ~3000)\n", memReps)
+	fmt.Printf("Benchmark Iterations: %d (Private Memory should stabilize around 7MB after ~3000)\n", memReps)
 
 	var privateMB, allocMB, allocTotalMB float64
 	for i := 0; i < memReps; i++ {
@@ -101,14 +101,14 @@ func TestMemoryWMISimple(t *testing.T) {
 	printlnMemUsage(privateMB, allocMB, allocTotalMB)
 }
 
-// Run using: `TEST_MEM=1 go test -run TestMemoryWMIConcurrent -timeout 60m`
-func TestMemoryWMIConcurrent(t *testing.T) {
+// Run using: `TEST_MEM=1 go test -run TestMemory_WMIConcurrent -timeout 60m`
+func TestMemory_WMIConcurrent(t *testing.T) {
 	if os.Getenv("TEST_MEM") == "" {
-		t.Skip("Skipping TestMemoryWMIConcurrent; $TEST_MEM is not set")
+		t.Skip("Skipping TestMemory_WMIConcurrent; $TEST_MEM is not set")
 	}
 
 	fmt.Println("Total Iterations:", memReps)
-	fmt.Println("No panics mean it succeeded. Other errors are OK. Memory should stabilize after ~1500 iterations.")
+	fmt.Println("No panics mean it succeeded. Other errors are OK. Private Memory should stabilize after ~1500 iterations.")
 	runtime.GOMAXPROCS(2)
 
 	start := time.Now()
@@ -145,10 +145,61 @@ func TestMemoryWMIConcurrent(t *testing.T) {
 	fmt.Printf("Final Time: %4ds\n", time.Now().Sub(start)/time.Second)
 }
 
-// Run using: `TEST_MEM=1 go test -run TestDereferenceMemory -timeout 60m`
-func TestDereferenceMemory(t *testing.T) {
+// In that test case we are going to ensure that large amount of timeout
+// exceptions won't leak a memory (as it does in github.com/go-ole/go-ole@1.2.4
+// and below).
+//
+// Run using: `TEST_MEM=1 go test -run TestMemory_OLEErrors -timeout 60m`
+func TestMemory_OLEErrors(t *testing.T) {
+	// Subscribe to some rare event. E.g. removal of the local drive.
+	const query = "SELECT * FROM Win32_VolumeChangeEvent WHERE EventType=3"
+
+	// We don't care about events, so listen to chan of nothing.
+	events := make(chan struct{})
+	q, err := NewNotificationQuery(events, query)
+	if err != nil {
+		t.Fatalf("Failed to create NotificationQuery; %s", err)
+	}
+
+	// Set some really small notification timeout so we will get a lot of timeouts.
+	q.SetNotificationTimeout(time.Millisecond)
+
+	// Start listening notifications. Blocks until stop.
+	done := make(chan error, 1)
+	go func() {
+		done <- q.StartNotifications()
+	}()
+
+	go func() {
+		t.Log("Listening for events")
+		for range events { // Do nothing.
+		}
+	}()
+
+	const sleep = 30 * time.Second
+	const N = (50 * time.Minute) / sleep
+	fmt.Printf("Benchmark Iterations: %d (Private Memory should stabilize around 7MB after ~5min)\n", N)
+
+	start := time.Now()
+	for i := 0; i < int(N); i++ {
+		time.Sleep(sleep)
+
+		privateMB, allocMB, allocTotalMB := getMemoryUsageMB(t)
+		fmt.Printf("Time: %4ds  ", time.Now().Sub(start)/time.Second)
+		printlnMemUsage(privateMB, allocMB, allocTotalMB)
+	}
+
+	q.Stop()
+	close(events)
+	if err := <-done; err != nil {
+		t.Errorf("Error listening to notifications query: %s", err)
+	}
+}
+
+// Run using: `TEST_MEM=1 go test -run TestMemory_Dereference -timeout 60m`
+func TestMemory_Dereference(t *testing.T) {
 	if os.Getenv("TEST_MEM") == "" {
-		t.Skip("Skipping TestDereferenceMemory; $TEST_MEM is not set")
+		t.Skip("Skipping TestMemory_Dereference; $TEST_MEM is not set")
 	}
 
 	type netAdapter struct {
@@ -181,7 +232,7 @@ func TestMemory_OLEArrays(t *testing.T) {
 	var dumbRes []miniBIOS
 	testQueryMem(t, &dumbRes,
 		// Write a query manually cos we shouldn't specify a system field in WQL string.
-		"SELECT BIOSVersion, BiosCharacteristics FROM Win32_BIOS")
+		"SELECT * FROM Win32_BIOS")
 }
 
 // testQueryMem tests memory usage performing repeating WMI queries for a long time.
@@ -192,7 +243,7 @@ func testQueryMem(t *testing.T, dst interface{}, query string) {
 	}
 
 	start := time.Now()
-	fmt.Printf("Benchmark Iterations: %d (Memory should stabilize around 7MB after ~3000)\n", memReps)
+	fmt.Printf("Benchmark Iterations: %d (Private Memory should stabilize around 7MB after ~3000)\n", memReps)
 
 	var privateMB, allocMB, allocTotalMB float64
 	for i := 0; i < memReps; i++ {
@@ -278,28 +329,6 @@ func getRSS(url string, xmlhttp *ole.IDispatch, MinimalTest bool) (int, error) {
 	defer lengthRaw.Clear()
 	length := int(lengthRaw.Val)
 
-	/* This just bloats the TotalAlloc and slows the test down. Doesn't effect Private Working Set
-	for n := 0; n < length; n++ {
-		itemRaw := oleutil.MustGetProperty(items, "item", n)
-		item := itemRaw.ToIDispatch()
-		title := oleutil.MustCallMethod(item, "selectSingleNode", "title").ToIDispatch()
-
-		//fmt.Println(oleutil.MustGetProperty(title, "text").ToString())
-		textRaw := oleutil.MustGetProperty(title, "text")
-		textRaw.ToString()
-
-		link := oleutil.MustCallMethod(item, "selectSingleNode", "link").ToIDispatch()
-		//fmt.Println("  " + oleutil.MustGetProperty(link, "text").ToString())
-		textRaw2 := oleutil.MustGetProperty(link, "text")
-		textRaw2.ToString()
-
-		textRaw2.Clear()
-		link.Release()
-		textRaw.Clear()
-		title.Release()
-		itemRaw.Clear()
-	}
-	*/
 	return length, nil
 }
 
@@ -320,7 +349,7 @@ func TestMemoryOLE(t *testing.T) {
 	start := time.Now()
 	limit := 50000000
 	url := "http://localhost/slashdot.xml" //http://rss.slashdot.org/Slashdot/slashdot"
-	fmt.Printf("Benchmark Iterations: %d (Memory should stabilize around 8MB to 12MB after ~2k full or 250k minimal)\n", limit)
+	fmt.Printf("Benchmark Iterations: %d (Private Memory should stabilize around 8MB to 12MB after ~2k full or 250k minimal)\n", limit)
 
 	//On Server 2016 or Windows 10 changing leakMemory=true will cause it to leak ~1.5MB per 10000 calls to unknown.QueryInterface
 	leakMemory := true
