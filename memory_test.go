@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-ole/go-ole"
-	"github.com/go-ole/go-ole/oleutil"
+	"github.com/bi-zone/go-ole"
+	"github.com/bi-zone/go-ole/oleutil"
 	"github.com/scjalliance/comshim"
 )
 
@@ -151,6 +151,10 @@ func TestMemory_WMIConcurrent(t *testing.T) {
 //
 // Run using: `TEST_MEM=1 go test -run TestMemory_OLEErrors -timeout 60m`
 func TestMemory_OLEErrors(t *testing.T) {
+	if os.Getenv("TEST_MEM") == "" {
+		t.Skip("Skipping TestMemory_OLEErrors; $TEST_MEM is not set")
+	}
+
 	// Subscribe to some rare event. E.g. removal of the local drive.
 	const query = "SELECT * FROM Win32_VolumeChangeEvent WHERE EventType=3"
 

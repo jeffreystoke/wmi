@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-ole/go-ole"
+	"github.com/bi-zone/go-ole"
 )
 
 var (
