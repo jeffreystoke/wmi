@@ -1,9 +1,10 @@
 module github.com/bi-zone/wmi
 
+go 1.15
+
 require (
 	github.com/bi-zone/go-ole v1.2.5
-	github.com/go-ole/go-ole v1.2.4 // indirect
 	github.com/hashicorp/go-multierror v1.0.0
-	github.com/scjalliance/comshim v0.0.0-20190308082608-cf06d2532c4e
-	golang.org/x/sys v0.0.0-20200806060901-a37d78b92225
+	github.com/jeffreystoke/comshim v0.0.0-20201112193758-b0afaf23e130
+	golang.org/x/sys v0.0.0-20200806060901-a37d78b92225 // indirect
 )

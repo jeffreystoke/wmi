@@ -12,7 +12,7 @@ import (
 
 	"github.com/bi-zone/go-ole"
 	"github.com/bi-zone/go-ole/oleutil"
-	"github.com/scjalliance/comshim"
+	"github.com/jeffreystoke/comshim"
 )
 
 const memReps = 50 * 1000
