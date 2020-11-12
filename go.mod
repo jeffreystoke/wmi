@@ -1,4 +1,4 @@
-module github.com/bi-zone/wmi
+module github.com/jeffreystoke/wmi
 
 go 1.15
 

@@ -13,7 +13,7 @@ import (
 	"unsafe"
 
 	"github.com/bi-zone/go-ole"
-	"github.com/bi-zone/wmi"
+	"github.com/jeffreystoke/wmi"
 )
 
 // Notifications source in "root\subscription".
