@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/StackExchange/wmi"
 	"github.com/bi-zone/go-ole"
-	"github.com/bi-zone/wmi"
 )
 
 // Notifications source in "root\subscription".

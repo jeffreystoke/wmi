@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/bi-zone/wmi"
+	"github.com/StackExchange/wmi"
 )
 
 // Structure with some fields from Win32_Process
